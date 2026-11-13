@@ -7,13 +7,13 @@ import { FocusDrop } from "@/components/map/FocusDrop";
 import { SheetHeight } from "@/components/map/SheetHeight";
 import { ShareButton } from "@/components/ShareButton";
 import { bylineLong, remainingText, savingsText, timingText } from "@/lib/drops/format";
-import { getDrop, knownDropIds } from "@/lib/drops/source";
+import { getDrop, prerenderedDropIds } from "@/lib/drops/page";
 
 // The shareable page for one drop. Known drops are prerendered; the map flies to the
 // drop and highlights its pin while this page is open.
 
 export async function generateStaticParams() {
-  return knownDropIds().map((id) => ({ id }));
+  return prerenderedDropIds().map((id) => ({ id }));
 }
 
 export async function generateMetadata({ params }: PageProps<"/d/[id]">): Promise<Metadata> {
@@ -97,10 +97,10 @@ async function DropDetails({ params }: { params: PageProps<"/d/[id]">["params"] 
         </ul>
 
         {drop.offer && <p className="text-[13px] text-muted">{drop.offer.terms}</p>}
-        <p className="text-[13px] text-muted">This is a sample drop for testing.</p>
+        {drop.sample && <p className="text-[13px] text-muted">This is a sample drop for testing.</p>}
       </article>
 
-      <div className="sticky bottom-0 -mx-4 mt-auto flex flex-col gap-2 border-t border-line bg-surface px-4 pt-3 max-md:-mb-4 max-md:pb-2">
+      <div className="sticky -bottom-4 -mx-4 -mb-4 mt-auto flex flex-col gap-2 border-t border-line bg-surface px-4 pt-3 pb-4 max-md:pb-2">
         {drop.offer && (
           <p className="rounded-lg bg-wash px-3 py-2 text-[13px] text-muted">
             Claiming a code comes in Phase 4, with sign-in.

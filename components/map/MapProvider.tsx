@@ -65,6 +65,12 @@ type MapContextValue = {
   sheet: SheetSize;
   setSheet: (size: SheetSize) => void;
   insets: Insets | null;
+  /** The add flow's drop while it's being placed. */
+  setDraft: (draft: MapPin | null) => void;
+  /** True while the add flow has a drop on the map. */
+  placing: boolean;
+  /** Load the drops in view again, e.g. after publishing one. */
+  reload: () => void;
 };
 
 type MapInternals = {
@@ -107,6 +113,9 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
   const [filter, setFilter] = useState<TypeFilterValue>("all");
   const [focused, setFocused] = useState<PublicDrop | null>(null);
   const [sheet, setSheet] = useState<SheetSize>("peek");
+  const [draft, setDraft] = useState<MapPin | null>(null);
+  const [reloads, setReloads] = useState(0);
+  const reload = useCallback(() => setReloads((n) => n + 1), []);
   const focusedRef = useRef<PublicDrop | null>(null);
   const positioned = useRef(false);
 
@@ -138,7 +147,7 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       off();
     };
-  }, [engine, status]);
+  }, [engine, status, reloads]);
 
   const shownDrops = useMemo(
     () => (filter === "all" ? drops : drops.filter((d) => d.type === filter)),
@@ -146,12 +155,17 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
   );
 
   // Pins: what's shown, plus the open drop even if it's filtered out or link-only.
+  // A drop being edited shows only as the draft.
   useEffect(() => {
     if (!engine) return;
     const pins = shownDrops.map(toPin);
     if (focused && !shownDrops.some((d) => d.id === focused.id)) pins.push(toPin(focused));
-    engine.setPins(pins);
-  }, [engine, shownDrops, focused]);
+    engine.setPins(draft ? pins.filter((p) => p.id !== draft.id) : pins);
+  }, [engine, shownDrops, focused, draft]);
+
+  useEffect(() => {
+    engine?.setDraft(draft);
+  }, [engine, draft]);
 
   useEffect(() => {
     engine?.setSelected(focused?.id ?? null);
@@ -185,8 +199,23 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
   }, [engine, insets]);
 
   const value = useMemo<MapContextValue>(
-    () => ({ engine, status, drops, shownDrops, filter, setFilter, focused, focus, sheet, setSheet, insets }),
-    [engine, status, drops, shownDrops, filter, focused, focus, sheet, insets],
+    () => ({
+      engine,
+      status,
+      drops,
+      shownDrops,
+      filter,
+      setFilter,
+      focused,
+      focus,
+      sheet,
+      setSheet,
+      insets,
+      setDraft,
+      placing: draft !== null,
+      reload,
+    }),
+    [engine, status, drops, shownDrops, filter, focused, focus, sheet, insets, draft, reload],
   );
   const internals = useMemo<MapInternals>(() => ({ setEngine, focusedRef }), [setEngine]);
 

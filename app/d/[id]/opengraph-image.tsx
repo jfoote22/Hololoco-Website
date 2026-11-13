@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ImageResponse } from "next/og";
 import { bylineLong, thumbnailFor, timingText } from "@/lib/drops/format";
-import { getDrop } from "@/lib/drops/source";
+import { getDrop } from "@/lib/drops/page";
 
 // The link preview for a drop: its object, title and who posted it.
 

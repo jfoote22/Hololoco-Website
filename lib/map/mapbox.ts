@@ -52,6 +52,9 @@ class MapboxEngine implements MapEngine {
   private me: Marker | null = null;
   private modelsShown: boolean | null = null;
   private pinsChanged = false;
+  private shownPins: MapPin[] = [];
+  private draft: { pin: MapPin; marker: Marker } | null = null;
+  private draftHandlers = new Set<(at: LngLat) => void>();
 
   constructor(
     private gl: MapboxGL,
@@ -115,6 +118,8 @@ class MapboxEngine implements MapEngine {
   destroy() {
     for (const { marker } of this.pins.values()) marker.remove();
     this.pins.clear();
+    this.draft?.marker.remove();
+    this.draft = null;
     this.me?.remove();
     this.map?.remove();
     this.map = null;
@@ -167,8 +172,16 @@ class MapboxEngine implements MapEngine {
     this.applySelected();
     this.pinsChanged = true;
     this.placePinsOnModels();
+    this.shownPins = pins;
+    this.drawModels();
+  }
 
-    const features = pins.flatMap((pin) => {
+  /** One source holds every model: the drops shown, plus the draft. */
+  private drawModels() {
+    const map = this.map;
+    if (!map) return;
+    const all = this.draft ? [...this.shownPins, this.draft.pin] : this.shownPins;
+    const features = all.flatMap((pin) => {
       if (!pin.modelUrl) return [];
       const url = new URL(pin.modelUrl, window.location.href).href;
       if (!this.models.has(url)) {
@@ -180,7 +193,6 @@ class MapboxEngine implements MapEngine {
       return [
         {
           type: "Feature" as const,
-          id: pin.id,
           geometry: { type: "Point" as const, coordinates: [lng, lat] },
           properties: {
             model: url,
@@ -192,6 +204,76 @@ class MapboxEngine implements MapEngine {
       ];
     });
     (map.getSource(SOURCE) as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features });
+  }
+
+  setDraft(pin: MapPin | null) {
+    const map = this.map;
+    if (!map) return;
+    if (!pin) {
+      this.draft?.marker.remove();
+      this.draft = null;
+      this.drawModels();
+      return;
+    }
+    const at: [number, number] = [pin.placement.lng, pin.placement.lat];
+    if (this.draft) {
+      this.draft.pin = pin;
+      this.draft.marker.setLngLat(at);
+    } else {
+      // A handle on the ground, so the model above it stays in view.
+      const marker = new this.gl.Marker({ element: this.draftElement(), anchor: "top", offset: [0, -18], draggable: true })
+        .setLngLat(at)
+        .addTo(map);
+      // The model follows the pin while it's dragged; the add flow hears where it ends up.
+      marker.on("drag", () => {
+        if (!this.draft) return;
+        const { lng, lat } = marker.getLngLat();
+        this.draft.pin = { ...this.draft.pin, placement: { ...this.draft.pin.placement, lng, lat } };
+        this.drawModels();
+      });
+      marker.on("dragend", () => {
+        const { lng, lat } = marker.getLngLat();
+        for (const handler of this.draftHandlers) handler({ lng, lat });
+      });
+      this.draft = { pin, marker };
+    }
+    this.drawModels();
+  }
+
+  private draftElement(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "hl-draft";
+    el.setAttribute("role", "img");
+    el.setAttribute("aria-label", "Your drop. Drag to move it.");
+    el.innerHTML =
+      '<span class="hl-draft-handle" aria-hidden="true">' +
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg></span>' +
+      '<span class="hl-draft-label" aria-hidden="true">Drag to move</span>';
+    // A tap on the handle isn't a tap on the map behind it.
+    el.addEventListener("click", (event) => event.stopPropagation());
+    return el;
+  }
+
+  onDraftMove(handler: (at: LngLat) => void) {
+    this.draftHandlers.add(handler);
+    return () => {
+      this.draftHandlers.delete(handler);
+    };
+  }
+
+  onMapTap(handler: (at: LngLat) => void) {
+    const map = this.map;
+    if (!map) return () => {};
+    const canvas = map.getCanvasContainer();
+    const listener = (event: { lngLat: { lng: number; lat: number } }) =>
+      handler({ lng: event.lngLat.lng, lat: event.lngLat.lat });
+    map.on("click", listener);
+    canvas.style.cursor = "crosshair";
+    return () => {
+      map.off("click", listener);
+      canvas.style.cursor = "";
+    };
   }
 
   /** While models show, each pin stands on top of its model instead of covering it. */
@@ -340,27 +422,5 @@ class MapboxEngine implements MapEngine {
     } else {
       this.me.setLngLat([at.lng, at.lat]);
     }
-  }
-
-  pickLocation(): Promise<LngLat | null> {
-    const map = this.map;
-    if (!map) return Promise.resolve(null);
-    return new Promise((resolve) => {
-      const canvas = map.getCanvasContainer();
-      const finish = (value: LngLat | null) => {
-        map.off("click", onClick);
-        window.removeEventListener("keydown", onKey);
-        canvas.style.cursor = "";
-        resolve(value);
-      };
-      const onClick = (event: { lngLat: { lng: number; lat: number } }) =>
-        finish({ lng: event.lngLat.lng, lat: event.lngLat.lat });
-      const onKey = (event: KeyboardEvent) => {
-        if (event.key === "Escape") finish(null);
-      };
-      canvas.style.cursor = "crosshair";
-      map.on("click", onClick);
-      window.addEventListener("keydown", onKey);
-    });
   }
 }

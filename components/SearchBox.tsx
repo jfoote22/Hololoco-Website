@@ -19,7 +19,15 @@ type Found = { query: string; results: Result[]; failed: boolean };
 
 const MIN_CHARS = 2;
 
-export function SearchBox() {
+export function SearchBox({
+  placesOnly = false,
+  onPlace,
+}: {
+  /** Only places, for the add flow: drops aren't somewhere you put things. */
+  placesOnly?: boolean;
+  /** Called after the map moves to a chosen place. */
+  onPlace?: (place: Place) => void;
+} = {}) {
   const router = useRouter();
   const { engine, setSheet } = useMap();
   const listId = useId();
@@ -40,7 +48,7 @@ export function SearchBox() {
     const timer = setTimeout(async () => {
       const near = engine?.getCenter();
       const [drops, places] = await Promise.all([
-        searchDrops(trimmed),
+        placesOnly ? Promise.resolve([]) : searchDrops(trimmed),
         token && near
           ? searchPlaces(trimmed, near, token, controller.signal).catch((error: unknown) => {
               if (controller.signal.aborted) throw error;
@@ -63,7 +71,7 @@ export function SearchBox() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [trimmed, engine]);
+  }, [trimmed, engine, placesOnly]);
 
   function choose(result: Result | undefined) {
     if (!result) return;
@@ -81,6 +89,7 @@ export function SearchBox() {
     const precise = ["address", "secondary_address", "street"].includes(place.kind);
     if (place.bounds && !precise) engine?.fitBounds(place.bounds, { maxZoom: zoomForPlace(place.kind) });
     else engine?.flyTo({ center: place.center, zoom: zoomForPlace(place.kind) });
+    onPlace?.(place);
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -120,7 +129,7 @@ export function SearchBox() {
           <circle cx="11" cy="11" r="7" />
           <path d="M20 20l-3.5-3.5" />
         </svg>
-        <span className="sr-only">Search a place or a drop</span>
+        <span className="sr-only">{placesOnly ? "Search a place" : "Search a place or a drop"}</span>
         <input
           ref={input}
           type="search"

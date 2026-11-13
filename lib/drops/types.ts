@@ -70,4 +70,34 @@ export type Owner = {
 };
 
 /** A drop as a visitor sees it: the drop, its owner's public name, and an offer's public fields. */
-export type PublicDrop = Drop & { owner: Owner; offer?: Offer };
+export type PublicDrop = Drop & {
+  owner: Owner;
+  offer?: Offer;
+  /** One of the made-up drops in lib/drops/sample.ts. */
+  sample?: boolean;
+};
+
+/** Set by the database: an account's drops are reviewed until one is approved. */
+export type Review = "pending" | "approved" | "rejected";
+
+/** One of the signed-in person's own drops, with what only they see. */
+export type MyDrop = PublicDrop & {
+  review: Review;
+  paused: boolean;
+  /** Within its hours right now, in its own time zone. */
+  openNow: boolean;
+  createdAt: string;
+};
+
+/** What the add flow sends to the database (save_drop). No id means a new drop. */
+export type DropInput = {
+  id?: string;
+  type: "object" | "message";
+  title: string;
+  description: string;
+  objectId: string;
+  placement: Placement;
+  timeZone: string;
+  timing: Timing;
+  audience: Audience;
+};

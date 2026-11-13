@@ -51,6 +51,13 @@ export interface MapEngine {
   /** Shows where the person is. Their location stays in the browser. */
   showUserLocation(at: LngLat | null): void;
 
-  /** Placement mode for the add flow: the next tap on the map picks a spot. */
-  pickLocation(): Promise<LngLat | null>;
+  /**
+   * The add flow's drop while it's being placed: drawn with its model like any drop,
+   * with a pin that can be dragged. Null removes it.
+   */
+  setDraft(draft: MapPin | null): void;
+  /** Called when the draft's pin is dragged to a new spot. */
+  onDraftMove(handler: (at: LngLat) => void): () => void;
+  /** Called with the spot of each tap on the map itself (not on a pin). */
+  onMapTap(handler: (at: LngLat) => void): () => void;
 }

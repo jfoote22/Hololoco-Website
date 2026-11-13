@@ -12,7 +12,8 @@ const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
 export function MapView() {
   const container = useRef<HTMLDivElement>(null);
-  const { engine, status, insets } = useMap();
+  const { engine, status, insets, drops, placing } = useMap();
+  const showsSamples = drops.some((d) => d.sample);
   const { setEngine, focusedRef } = useMapInternals();
   const [locating, setLocating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -92,7 +93,9 @@ export function MapView() {
           className="absolute right-3 flex flex-col items-end gap-2 transition-[bottom] duration-200 ease-out md:right-4"
           style={{ bottom: "calc(var(--map-inset-bottom, 0px) + 76px)" }}
         >
-          <p className="rounded-md bg-surface/90 px-2 py-1 text-xs text-muted">Sample drops for testing</p>
+          {showsSamples && !placing && (
+            <p className="rounded-md bg-surface/90 px-2 py-1 text-xs text-muted">Sample drops for testing</p>
+          )}
           {notice && (
             <p role="status" className="max-w-[260px] rounded-lg bg-surface px-3 py-2 text-[13px] text-muted shadow-sm">
               {notice}

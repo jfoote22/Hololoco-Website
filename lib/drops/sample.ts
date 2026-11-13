@@ -1,4 +1,4 @@
-// Sample content for Phase 1, so the map has something on it before anyone can post.
+// Sample content, so the map has something on it before people post.
 // The people and businesses are made up. The launch city isn't chosen yet: to move
 // the whole set, change SAMPLE_CENTRE; every drop is placed in metres from it.
 
@@ -20,7 +20,10 @@ const round = (n: number) => Math.round(n * 1e6) / 1e6;
 
 const timeZone = "America/New_York";
 
-export const sampleDrops: PublicDrop[] = [
+/** Samples show alongside real drops until NEXT_PUBLIC_SAMPLE_DROPS is set to "off". */
+export const showSamples = process.env.NEXT_PUBLIC_SAMPLE_DROPS !== "off";
+
+const drops: PublicDrop[] = [
   {
     id: "k7p2m9qa",
     type: "offer",
@@ -130,3 +133,5 @@ export const sampleDrops: PublicDrop[] = [
     status: "live",
   },
 ];
+
+export const sampleDrops: PublicDrop[] = drops.map((drop) => ({ ...drop, sample: true }));

@@ -1,8 +1,18 @@
 import type { Metadata } from "next";
-import { ComingSoon } from "@/components/ComingSoon";
+import { Suspense } from "react";
+import { SheetHeight } from "@/components/map/SheetHeight";
+import { YourDrops } from "@/components/mine/YourDrops";
 
-export const metadata: Metadata = { title: "Your drops" };
+export const metadata: Metadata = { title: "Your drops", robots: { index: false } };
 
+// Runs in the browser: the person's session lives there, and the database decides what they can see.
 export default function YourDropsScreen() {
-  return <ComingSoon title="Your drops" purpose="Edit, pause or delete what you posted, and see what's in review." phase="Phase 2" />;
+  return (
+    <>
+      <SheetHeight size="half" />
+      <Suspense fallback={<p className="text-sm text-muted">Loading…</p>}>
+        <YourDrops />
+      </Suspense>
+    </>
+  );
 }

@@ -20,6 +20,8 @@ export type DropJson = {
   paused: boolean;
   openNow: boolean;
   createdAt: string;
+  /** Only from my_drops: hidden while staff check a report about it. */
+  hiddenForReport?: boolean;
 };
 
 export function dropFromJson(j: DropJson): PublicDrop {
@@ -49,5 +51,6 @@ export function myDropFromJson(j: DropJson): MyDrop {
     paused: j.paused,
     openNow: j.openNow,
     createdAt: j.createdAt,
+    hiddenForReport: j.hiddenForReport === true,
   };
 }

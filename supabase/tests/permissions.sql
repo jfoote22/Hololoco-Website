@@ -463,6 +463,177 @@ end $$;
 reset role;
 select set_config('request.jwt.claims', '', false);
 
+-- ===== Reports ============================================================
+-- Visitors report from a connection; set_config stands in for the address.
+
+set role anon;
+do $$ begin
+  begin
+    perform 1 from public.reports limit 1;
+    insert into perm_test.results (test, passed, detail) values ('visitors cannot read reports', false, 'select worked');
+  exception when insufficient_privilege then
+    insert into perm_test.results (test, passed, detail) values ('visitors cannot read reports', true, sqlerrm);
+  end;
+
+  begin
+    perform public.file_report(current_setting('t.a1'), 'other');
+    insert into perm_test.results (test, passed, detail) values ('"something else" needs details', false, 'filed');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('"something else" needs details', sqlerrm = 'details_needed', sqlerrm);
+  end;
+
+  begin
+    perform public.file_report(current_setting('t.a1'), 'copyright', 'My photo');
+    insert into perm_test.results (test, passed, detail) values ('copyright reports need a contact', false, 'filed');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('copyright reports need a contact', sqlerrm = 'contact_needed', sqlerrm);
+  end;
+
+  begin
+    perform public.file_report(current_setting('t.a_paused'), 'spam');
+    insert into perm_test.results (test, passed, detail) values ('only visible drops can be reported', false, 'filed');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('only visible drops can be reported', sqlerrm = 'not_found', sqlerrm);
+  end;
+end $$;
+
+select set_config('request.headers', '{"x-forwarded-for":"10.0.0.1"}', false);
+do $$
+declare v_json jsonb;
+begin
+  v_json := public.file_report(current_setting('t.a1'), 'spam');
+  insert into perm_test.results (test, passed, detail)
+  values ('visitors can report a drop', (v_json ->> 'filed')::boolean and not (v_json ->> 'hidden')::boolean, v_json::text);
+  perform public.file_report(current_setting('t.a1'), 'spam');
+end $$;
+select set_config('request.headers', '{"x-forwarded-for":"10.0.0.2"}', false);
+select public.file_report(current_setting('t.a1'), 'spam');
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+insert into perm_test.results (test, passed, detail)
+select 'a repeat report from the same person is ignored', count(*) = 2, count(*)::text
+from public.reports where drop_id = current_setting('t.a1');
+insert into perm_test.results (test, passed, detail)
+select 'two reports don''t hide a drop', review = 'approved', review
+from public.drops where id = current_setting('t.a1');
+insert into perm_test.results (test, passed, detail)
+select 'the reporter''s address isn''t stored', not exists (select 1 from public.reports where reporter_key like '%10.0.0%'), null;
+
+set role anon;
+select set_config('request.headers', '{"x-forwarded-for":"10.0.0.3"}', false);
+do $$
+declare v_json jsonb;
+begin
+  v_json := public.file_report(current_setting('t.a1'), 'offensive');
+  insert into perm_test.results (test, passed, detail)
+  values ('reports from three people hide a drop', (v_json ->> 'hidden')::boolean
+          and public.public_drop(current_setting('t.a1')) is null, v_json::text);
+end $$;
+select set_config('request.headers', '{"x-forwarded-for":"10.0.0.4"}', false);
+do $$
+declare v_json jsonb;
+begin
+  v_json := public.file_report(current_setting('t.a_open'), 'unsafe', 'Blocks the fire exit.');
+  insert into perm_test.results (test, passed, detail)
+  values ('a serious report hides a drop at once', (v_json ->> 'hidden')::boolean
+          and public.public_drop(current_setting('t.a_open')) is null, v_json::text);
+end $$;
+
+-- Removal requests not about one drop.
+do $$ begin
+  begin
+    perform public.file_report(null, 'property', 'The note at 12 Main St is on my house.');
+    insert into perm_test.results (test, passed, detail) values ('removal requests need a contact', false, 'filed');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('removal requests need a contact', sqlerrm = 'contact_needed', sqlerrm);
+  end;
+  perform public.file_report(null, 'property', 'The note at 12 Main St is on my house.', 'owner@example.invalid');
+  insert into perm_test.results (test, passed, detail) values ('anyone can ask for a removal without an account', true, null);
+exception when others then
+  insert into perm_test.results (test, passed, detail) values ('anyone can ask for a removal without an account', false, sqlerrm);
+end $$;
+
+select set_config('request.headers', '{"x-forwarded-for":"10.0.0.9"}', false);
+do $$ begin
+  for i in 1..10 loop
+    perform public.file_report(null, 'property', 'Request ' || i, 'owner@example.invalid');
+  end loop;
+  begin
+    perform public.file_report(null, 'property', 'Request 11', 'owner@example.invalid');
+    insert into perm_test.results (test, passed, detail) values ('ten reports a day per person at most', false, 'eleventh filed');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('ten reports a day per person at most', sqlerrm = 'limit_reports', sqlerrm);
+  end;
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+select set_config('request.headers', '', false);
+
+insert into perm_test.results (test, passed, detail)
+select 'hiding a drop is logged', count(*) = 2, count(*)::text
+from public.moderation_events where action = 'hide' and drop_id in (current_setting('t.a1'), current_setting('t.a_open'));
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-4000-8000-000000000001","role":"authenticated"}', false);
+do $$ begin
+  insert into perm_test.results (test, passed, detail)
+  select 'owners see their drop is hidden for a report', (j ->> 'hiddenForReport')::boolean, j ->> 'hiddenForReport'
+  from public.my_drops() j where j ->> 'id' = current_setting('t.a1');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"dddddddd-0000-4000-8000-000000000004","role":"authenticated"}', false);
+do $$ begin
+  begin
+    perform public.review_reports();
+    insert into perm_test.results (test, passed, detail) values ('only staff can read reports', false, 'reports returned');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('only staff can read reports', sqlerrm = 'not_staff', sqlerrm);
+  end;
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"eeeeeeee-0000-4000-8000-000000000005","role":"authenticated"}', false);
+do $$
+declare v_request bigint;
+begin
+  insert into perm_test.results (test, passed, detail)
+  select 'staff see reported drops with their reports',
+         exists (select 1 from public.review_reports() j
+                 where j -> 'drop' ->> 'id' = current_setting('t.a1') and jsonb_array_length(j -> 'reports') = 3), null;
+  insert into perm_test.results (test, passed, detail)
+  select 'reported drops wait in reports, not the queue',
+         not exists (select 1 from public.review_queue() j where j ->> 'id' = current_setting('t.a1')), null;
+
+  perform public.review_drop(current_setting('t.a1'), 'approve');
+  perform public.review_drop(current_setting('t.a_open'), 'reject', 'It blocks a fire exit.');
+
+  select (j -> 'reports' -> 0 ->> 'id')::bigint into v_request
+  from public.review_reports() j
+  where j ->> 'kind' = 'request' and j -> 'reports' -> 0 ->> 'details' = 'The note at 12 Main St is on my house.'
+  limit 1;
+  perform public.close_report(v_request, 'resolved', 'Removed it.');
+  insert into perm_test.results (test, passed, detail)
+  select 'staff can close a removal request',
+         not exists (select 1 from public.review_reports() j where (j -> 'reports' -> 0 ->> 'id')::bigint = v_request), null;
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+insert into perm_test.results (test, passed, detail)
+select 'keeping a drop dismisses its reports and shows it again',
+       (select count(*) from public.reports where drop_id = current_setting('t.a1') and status = 'dismissed') = 3
+       and (select review from public.drops where id = current_setting('t.a1')) = 'approved', null;
+insert into perm_test.results (test, passed, detail)
+select 'taking a drop down resolves its reports',
+       (select count(*) from public.reports where drop_id = current_setting('t.a_open') and status = 'resolved') = 1
+       and (select review from public.drops where id = current_setting('t.a_open')) = 'rejected', null;
+
 -- ===== Clean up, then show the results ====================================
 drop table if exists pg_temp.perm_test_results;
 create temp table perm_test_results as select * from perm_test.results;
@@ -470,7 +641,11 @@ delete from auth.users where id in (
   'aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000002',
   'cccccccc-0000-4000-8000-000000000003', 'dddddddd-0000-4000-8000-000000000004',
   'eeeeeeee-0000-4000-8000-000000000005');
-delete from public.moderation_events where drop_id = current_setting('t.d1');
+delete from public.moderation_events
+where drop_id in (current_setting('t.d1'), current_setting('t.a1'), current_setting('t.a_open'));
+delete from public.reports
+where drop_id in (current_setting('t.a1'), current_setting('t.a_open'))
+   or (drop_id is null and contact = 'owner@example.invalid');
 drop schema perm_test cascade;
 
 select n, passed, test, detail from perm_test_results order by n;

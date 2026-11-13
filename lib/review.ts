@@ -15,11 +15,26 @@ export type QueueItem = MyDrop & {
 
 export type Decision = "approve" | "reject" | "reopen";
 
+/** One report as staff see it. Who sent it stays private; only whether they were signed in. */
+export type ReportEntry = {
+  id: number;
+  reason: string;
+  details: string | null;
+  contact: string | null;
+  at: string;
+  signedIn: boolean;
+};
+
+/** A reported drop with its open reports, or a request that isn't about a drop on the map. */
+export type ReportItem =
+  | { kind: "drop"; drop: MyDrop; hidden: boolean; reports: ReportEntry[] }
+  | { kind: "request"; drop: null; dropTitle: string | null; reports: ReportEntry[] };
+
 export type HistoryItem = {
   id: number;
   dropId: string;
   title: string;
-  action: Decision;
+  action: Decision | "hide";
   reason: string | null;
   at: string;
   by: string;
@@ -56,6 +71,28 @@ export async function listHistory(): Promise<HistoryItem[]> {
   const { data, error } = await client.rpc("review_history", { max_results: 30 });
   if (error) throw new Error(errorText(error));
   return (data ?? []) as HistoryItem[];
+}
+
+type ReportJson =
+  | { kind: "drop"; drop: DropJson; hidden: boolean; reports: ReportEntry[] }
+  | { kind: "request"; drop: null; dropTitle: string | null; reports: ReportEntry[] };
+
+export async function listReports(): Promise<ReportItem[]> {
+  const client = browserClient();
+  if (!client) return [];
+  const { data, error } = await client.rpc("review_reports");
+  if (error) throw new Error(errorText(error));
+  return ((data ?? []) as ReportJson[]).map((j) =>
+    j.kind === "drop" ? { ...j, drop: myDropFromJson(j.drop) } : j,
+  );
+}
+
+/** Close a request that isn't about a drop on the map: handled, or dismissed. */
+export async function closeReport(id: number, outcome: "resolved" | "dismissed", note?: string): Promise<string | null> {
+  const client = browserClient();
+  if (!client) return errorText(null);
+  const { error } = await client.rpc("close_report", { report_id: id, outcome, note: note ?? null });
+  return error ? errorText(error) : null;
 }
 
 export async function decide(dropId: string, decision: Decision, reason?: string): Promise<string | null> {

@@ -25,6 +25,8 @@ function statusOf(drop: MyDrop): { word: string; tone: string; line?: string } {
       tone: "text-rejected",
       line: `${drop.reviewReason ?? "It doesn't follow the content rules."} Edit it to send it back for review.`,
     };
+  if (drop.review === "pending" && drop.hiddenForReport)
+    return { word: "Hidden for now", tone: "text-review", line: "Someone reported it. It's off the map until a person checks it." };
   if (drop.review === "pending")
     return { word: "In review", tone: "text-review", line: "Only you can see it until a person has checked it." };
   if (drop.paused) return { word: "Paused", tone: "text-muted", line: "Hidden until you resume it." };

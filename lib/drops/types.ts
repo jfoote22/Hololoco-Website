@@ -89,6 +89,8 @@ export type MyDrop = PublicDrop & {
   /** Within its hours right now, in its own time zone. */
   openNow: boolean;
   createdAt: string;
+  /** Hidden from the map while staff check a report about it. */
+  hiddenForReport: boolean;
 };
 
 /** What the add flow sends to the database (save_drop). No id means a new drop. */

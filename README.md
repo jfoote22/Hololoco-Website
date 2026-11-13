@@ -6,7 +6,7 @@ This repository is the website at hololoco.com. It replaces the 2021 portal and 
 
 ## Status
 
-Phase 3, safety, has started: the review queue and reports are built. Phase 2, adding to the map, is built and waiting on its gate: sign-in at Publish (an emailed code or link, and Google once it's switched on), the three-step add flow with ready-made objects, schedules, and Your drops with edit, pause and delete. The database enforces the rules. Phase 1's gate, a test on a mid-range phone, is still open too. Offers, uploads, reports and the review queue come in later phases.
+Phase 3, safety, has started: the review queue, reports, and photo and 3D model uploads are built. Rules on where drops can go and the legal pages have moved later in the plan. Phase 2, adding to the map, is built and waiting on its gate: sign-in at Publish (an emailed code or link, and Google once it's switched on), the three-step add flow with ready-made objects, schedules, and Your drops with edit, pause and delete. The database enforces the rules. Phase 1's gate, a test on a mid-range phone, is still open too. Offers, uploads, reports and the review queue come in later phases.
 
 | Phase | Delivers | Gate to move on |
 | --- | --- | --- |
@@ -90,6 +90,13 @@ Then list any new object in `lib/library/objects.ts`, and add it to the `library
 - Drop pages are cached for a few minutes. Saving, pausing or deleting a drop refreshes its page.
 - Sample drops show alongside real ones until `NEXT_PUBLIC_SAMPLE_DROPS=off`.
 
+## How uploads work
+
+- People can use a photo or their own 3D model (GLB, or FBX with its texture files) instead of a ready-made object. Their browser does all the processing (`lib/upload/`): three.js reads the file; it becomes static meshes with standard materials, 1 m across and standing on the ground; textures are capped at 1024 px; meshoptimizer (through glTF-Transform) simplifies it to 10,000 triangles or fewer; and it renders a thumbnail. Photos are redrawn, which drops their location data, and set in a frame. The result shows on the map before publishing.
+- The processed files wait in the browser (IndexedDB) until Publish, then go to the person's own folder in the private `uploads` bucket. Storage enforces the folder, an 8 MB limit and the file types (GLB, PNG, JPEG); the database checks the files are there, and allows 10 uploads a day.
+- A drop with an upload always waits for review, whoever posted it. The reviewer's browser downloads the actual file and checks it: no outside references, the real triangle count, size and textures, and its own picture of the model. Approving copies the files to the public `drop-assets` bucket under the upload's id (so the owner's id is never in a public address), with the reviewer's picture as the map thumbnail. Taking a drop down removes those copies.
+- Mapbox's model loader needs each vertex attribute in its own buffer and 16-bit indices, so the processed GLB is written that way and no part may have more than 65,535 vertices.
+
 ## Layout
 
 ```
@@ -105,6 +112,8 @@ components/map/      shared map state, and helpers pages use to focus a drop or 
 lib/map/             MapEngine interface, the Mapbox adapter, place search
 lib/drops/           drop types, limits, wording, sample drops, public reads, your own drops
 lib/library/         the ready-made object list
+lib/upload/          turning photos and GLB/FBX models into small GLBs in the browser, and uploading them
+lib/assets.ts        where uploaded files live, and signed links to private ones
 lib/reports.ts       filing a report
 lib/review.ts        staff calls for the review queue and reports
 lib/supabase/        Supabase clients for the browser, the server and public reads
@@ -114,7 +123,7 @@ supabase/migrations/ the schema and its rules
 supabase/tests/      permission tests, run against a project
 ```
 
-Still to come, as each phase needs them: `supabase/functions/` (upload checks) and `tests/` (an add-flow browser test).
+Still to come, as each phase needs them: `tests/` (an add-flow browser test).
 
 ## Ground rules
 

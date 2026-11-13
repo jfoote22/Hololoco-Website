@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
@@ -6,7 +7,7 @@ import { DropThumb } from "@/components/DropThumb";
 import { FocusDrop } from "@/components/map/FocusDrop";
 import { SheetHeight } from "@/components/map/SheetHeight";
 import { ShareButton } from "@/components/ShareButton";
-import { bylineLong, remainingText, savingsText, timingText } from "@/lib/drops/format";
+import { bylineLong, photoFor, remainingText, savingsText, timingText } from "@/lib/drops/format";
 import { getDrop, prerenderedDropIds } from "@/lib/drops/page";
 
 // The shareable page for one drop. Known drops are prerendered; the map flies to the
@@ -68,19 +69,34 @@ async function DropDetails({ params }: { params: PageProps<"/d/[id]">["params"] 
   if (!drop) notFound();
 
   const when = timingText(drop.timing);
+  const photo = photoFor(drop);
 
   return (
     <>
       <FocusDrop drop={drop} />
 
       <article className="flex flex-col gap-4">
-        <div className="flex items-center gap-3.5 md:flex-col md:items-stretch md:gap-4">
-          <DropThumb
-            drop={drop}
-            eager
-            className="size-[76px] rounded-(--radius-panel) md:h-40 md:w-full"
-            imageClassName="size-[62px] md:size-[120px]"
+        {photo && (
+          // An uploaded photo, from storage. Already sized for this.
+          <Image
+            src={photo}
+            alt={`Photo: ${drop.title}`}
+            width={800}
+            height={600}
+            unoptimized
+            loading="eager"
+            className="max-h-[50dvh] w-full rounded-(--radius-panel) bg-wash object-contain"
           />
+        )}
+        <div className="flex items-center gap-3.5 md:flex-col md:items-stretch md:gap-4">
+          {!photo && (
+            <DropThumb
+              drop={drop}
+              eager
+              className="size-[76px] rounded-(--radius-panel) md:h-40 md:w-full"
+              imageClassName="size-[62px] md:size-[120px]"
+            />
+          )}
           <div className="flex flex-col gap-1">
             <p className="text-[13px] text-muted">{bylineLong(drop)}</p>
             <h1 className="text-[22px] leading-tight font-semibold md:text-[26px]">{drop.title}</h1>

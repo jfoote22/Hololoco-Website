@@ -4,7 +4,7 @@
 // Approve or keep, or don't approve / take down with a reason the owner sees.
 // Every decision is logged and can be undone.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { dropChanged } from "@/app/actions";
 import { SignIn } from "@/components/auth/SignIn";
 import { useSession } from "@/components/auth/session";
@@ -13,13 +13,17 @@ import { useMap } from "@/components/map/MapProvider";
 import { choiceCard, inputClass, labelClass, textButton } from "@/components/ui";
 import { timingText, typeLabel } from "@/lib/drops/format";
 import type { MyDrop } from "@/lib/drops/types";
+import { attachPreviews } from "@/lib/assets";
 import { reasonLabel } from "@/lib/reports";
+import type { Inspection } from "@/lib/upload/inspect";
+import { megabytes } from "@/lib/upload/limits";
 import {
   closeReport,
   decide,
   listHistory,
   listQueue,
   listReports,
+  publishUpload,
   REJECT_REASONS,
   timeAgo,
   type Decision,
@@ -27,7 +31,11 @@ import {
   type QueueItem,
   type ReportEntry,
   type ReportItem,
+  unpublishUpload,
 } from "@/lib/review";
+
+/** The reviewer's own check of an uploaded file. */
+type Check = { state: "checking" } | { state: "done"; inspection: Inspection } | { state: "failed"; message: string };
 
 const OTHER = "other";
 const REASON_MAX = 300;
@@ -73,12 +81,31 @@ export function ReviewQueue() {
   const [version, setVersion] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [checks, setChecks] = useState<Record<string, Check>>({});
+  const checked = useRef(new Set<string>());
 
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    Promise.all([listReports(), listQueue(), listHistory()])
-      .then(([reports, queue, history]) => !cancelled && setLoaded({ userId, reports, queue, history, error: null }))
+    Promise.all([listReports(), listQueue().then(attachPreviews), listHistory()])
+      .then(async ([reports, queue, history]) => {
+        if (cancelled) return;
+        setLoaded({ userId, reports, queue, history, error: null });
+        // Check each upload's actual file, one at a time, in this browser.
+        for (const item of queue) {
+          const model = item.preview?.model;
+          if (item.look.kind !== "upload" || !model || checked.current.has(item.id)) continue;
+          checked.current.add(item.id);
+          setChecks((c) => ({ ...c, [item.id]: { state: "checking" } }));
+          try {
+            const { inspectModel } = await import("@/lib/upload/inspect");
+            const inspection = await inspectModel(model);
+            setChecks((c) => ({ ...c, [item.id]: { state: "done", inspection } }));
+          } catch (error) {
+            setChecks((c) => ({ ...c, [item.id]: { state: "failed", message: (error as Error).message } }));
+          }
+        }
+      })
       .catch(
         (error: Error) =>
           !cancelled && setLoaded({ userId, reports: null, queue: null, history: null, error: error.message }),
@@ -90,11 +117,19 @@ export function ReviewQueue() {
 
   const current = loaded?.userId === userId ? loaded : null;
 
-  async function decideDrop(item: { id: string; title: string }, decision: Decision, reason: string | undefined, reported: boolean) {
+  async function decideDrop(
+    item: { id: string; title: string },
+    decision: Decision,
+    reason: string | undefined,
+    reported: boolean,
+  ): Promise<boolean> {
     setBusy(item.id);
     const failed = await decide(item.id, decision, reason);
     setBusy(null);
-    if (failed) return setNotice({ userId, text: failed });
+    if (failed) {
+      setNotice({ userId, text: failed });
+      return false;
+    }
     const text =
       decision === "approve"
         ? reported
@@ -109,6 +144,36 @@ export function ReviewQueue() {
     void dropChanged(item.id);
     reload();
     setVersion((v) => v + 1);
+    return true;
+  }
+
+  /** Why an upload can't be approved yet, or null when it can. */
+  function uploadBlock(item: MyDrop): string | null {
+    if (item.look.kind !== "upload" || item.look.status === "approved") return null;
+    const check = checks[item.id];
+    if (!item.assetFiles) return "Its files are missing.";
+    if (!check || check.state === "checking") return "Checking the file…";
+    if (check.state === "failed") return "The file couldn't be checked.";
+    return check.inspection.problems.length ? "It's over the limits." : null;
+  }
+
+  async function approveItem(item: MyDrop, reported: boolean) {
+    if (item.look.kind === "upload" && item.look.status !== "approved") {
+      const blocked = uploadBlock(item);
+      const check = checks[item.id];
+      if (blocked || !item.assetFiles || check?.state !== "done")
+        return setNotice({ userId, text: blocked ?? "Check the upload first." });
+      setBusy(item.id);
+      const failed = await publishUpload(item.look, item.assetFiles, check.inspection.picture);
+      setBusy(null);
+      if (failed) return setNotice({ userId, text: failed });
+    }
+    await decideDrop(item, "approve", undefined, reported);
+  }
+
+  async function rejectItem(item: MyDrop, reason: string, reported: boolean) {
+    const done = await decideDrop(item, "reject", reason, reported);
+    if (done && item.look.kind === "upload") void unpublishUpload(item.look.assetId);
   }
 
   async function closeRequest(id: number, outcome: "resolved" | "dismissed") {
@@ -190,8 +255,8 @@ export function ReviewQueue() {
                       busy={busy === item.drop.id}
                       approveLabel="Keep it"
                       rejectLabel="Take it down"
-                      onApprove={() => decideDrop(item.drop, "approve", undefined, true)}
-                      onReject={(reason) => decideDrop(item.drop, "reject", reason, true)}
+                      onApprove={() => approveItem(item.drop, true)}
+                      onReject={(reason) => rejectItem(item.drop, reason, true)}
                       onShow={() => showOnMap(item.drop)}
                     />
                   </li>
@@ -248,12 +313,14 @@ export function ReviewQueue() {
                 </div>
                 {item.description && <p className="text-sm break-words whitespace-pre-line">{item.description}</p>}
                 <p className="text-[13px] text-muted">{factsLine(item)}</p>
+                {item.look.kind === "upload" && <UploadFacts item={item} check={checks[item.id]} />}
                 <Decide
                   busy={busy === item.id}
                   approveLabel="Approve"
                   rejectLabel="Don't approve"
-                  onApprove={() => decideDrop(item, "approve", undefined, false)}
-                  onReject={(reason) => decideDrop(item, "reject", reason, false)}
+                  blockApprove={uploadBlock(item)}
+                  onApprove={() => approveItem(item, false)}
+                  onReject={(reason) => rejectItem(item, reason, false)}
                   onShow={() => showOnMap(item)}
                 />
               </li>
@@ -335,6 +402,7 @@ function Decide({
   busy,
   approveLabel,
   rejectLabel,
+  blockApprove = null,
   onApprove,
   onReject,
   onShow,
@@ -342,6 +410,8 @@ function Decide({
   busy: boolean;
   approveLabel: string;
   rejectLabel: string;
+  /** Why approving isn't possible yet, if it isn't. */
+  blockApprove?: string | null;
   onApprove: () => void;
   onReject: (reason: string) => void;
   onShow: () => void;
@@ -356,7 +426,8 @@ function Decide({
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || blockApprove !== null}
+          title={blockApprove ?? undefined}
           onClick={onApprove}
           className="min-h-11 rounded-lg bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-60"
         >
@@ -435,5 +506,61 @@ function Decide({
         </button>
       </div>
     </form>
+  );
+}
+
+const fmt = (n: number) => n.toLocaleString("en-US");
+
+/** What the reviewer's browser found in the actual uploaded file. */
+function UploadFacts({ item, check }: { item: MyDrop; check: Check | undefined }) {
+  if (item.look.kind !== "upload") return null;
+  const isPhoto = item.look.assetKind === "photo";
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-line p-3 text-sm">
+      <div className="flex items-start gap-3">
+        <span className="flex size-24 shrink-0 items-center justify-center rounded-lg bg-wash">
+          {check?.state === "done" && check.inspection.pictureUrl && (
+            // A picture this browser just drew from the actual file.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={check.inspection.pictureUrl} alt="The uploaded model" className="size-[88px] object-contain" />
+          )}
+        </span>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <b>{isPhoto ? "Uploaded photo" : "Uploaded 3D model"}</b>
+          {item.assetFiles?.sourceName && (
+            <span className="truncate text-[13px] text-muted">From {item.assetFiles.sourceName}</span>
+          )}
+          {(!check || check.state === "checking") && <span className="text-[13px] text-muted">Checking the file…</span>}
+          {check?.state === "failed" && (
+            <span className="text-[13px] text-rejected">Couldn&apos;t check the file: {check.message}</span>
+          )}
+          {check?.state === "done" && (
+            <span className="text-[13px] text-muted">
+              {fmt(check.inspection.triangles)} triangles · {megabytes(check.inspection.bytes)}
+              {check.inspection.largestTexture > 0 && ` · textures up to ${check.inspection.largestTexture} px`}
+            </span>
+          )}
+          {isPhoto && item.preview?.photo && (
+            <a
+              href={item.preview.photo}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[13px] font-medium text-accent hover:underline"
+            >
+              Open the photo
+            </a>
+          )}
+        </div>
+      </div>
+      {check?.state === "done" &&
+        check.inspection.problems.map((problem) => (
+          <p key={problem} className="text-[13px] text-rejected">
+            {problem}
+          </p>
+        ))}
+      <p className="text-[13px] text-muted">
+        The picture here is drawn from the file itself. Show it on the map to see it in place before approving.
+      </p>
+    </div>
   );
 }

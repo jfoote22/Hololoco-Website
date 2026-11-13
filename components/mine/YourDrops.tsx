@@ -13,6 +13,7 @@ import { DropThumb } from "@/components/DropThumb";
 import { useMap } from "@/components/map/MapProvider";
 import { primaryButton, textButton } from "@/components/ui";
 import { timingText, typeLabel } from "@/lib/drops/format";
+import { attachPreviews } from "@/lib/assets";
 import { deleteDrop, getProfile, listMyDrops, setPaused } from "@/lib/drops/mine";
 import type { MyDrop } from "@/lib/drops/types";
 
@@ -48,7 +49,7 @@ export function YourDrops() {
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    Promise.all([listMyDrops(), getProfile(userId)])
+    Promise.all([listMyDrops().then(attachPreviews), getProfile(userId)])
       .then(([drops, profile]) => !cancelled && setLoaded({ userId, drops, error: null, isStaff: profile?.isStaff ?? false }))
       .catch((error: Error) => !cancelled && setLoaded({ userId, drops: null, error: error.message, isStaff: false }));
     return () => {
@@ -115,7 +116,9 @@ export function YourDrops() {
         <>
           {added && mine?.drops?.some((d) => d.id === added && d.review === "pending") && (
             <p role="status" className="rounded-lg bg-accent-wash px-3 py-2.5 text-sm">
-              Thanks! Your drop is in review. A person checks each new account&apos;s first drop, usually within a day.
+              {mine.drops.find((d) => d.id === added)?.look.kind === "upload"
+                ? "Thanks! Your drop is in review. A person checks every photo and model, usually within a day."
+                : "Thanks! Your drop is in review. A person checks each new account's first drop, usually within a day."}{" "}
               Until then only you can see it.
             </p>
           )}

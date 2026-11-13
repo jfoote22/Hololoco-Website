@@ -634,15 +634,191 @@ select 'taking a drop down resolves its reports',
        (select count(*) from public.reports where drop_id = current_setting('t.a_open') and status = 'resolved') = 1
        and (select review from public.drops where id = current_setting('t.a_open')) = 'rejected', null;
 
+-- ===== Uploads ============================================================
+-- F already has an approved drop, so ready-made objects would go live at once.
+-- Upload rows are made here as the database owner, since the files themselves
+-- can only be uploaded through Supabase Storage.
+
+insert into auth.users (id, aud, role, email) values
+  ('ffffffff-0000-4000-8000-000000000006', 'authenticated', 'authenticated', 'f@example.invalid');
+update public.profiles set display_name = 'Tester', adult_confirmed_at = now()
+where id = 'ffffffff-0000-4000-8000-000000000006';
+insert into public.drops (owner_id, type, title, object_id, lat, lng, time_zone, review)
+values ('ffffffff-0000-4000-8000-000000000006', 'object', 'Earlier drop', 'gift', 47.0, -30.0, 'UTC', 'approved');
+
+insert into public.assets (id, owner_id, kind, source_format, triangles, model_path, thumbnail_path)
+values
+  ('0f0f0f0f-0000-4000-8000-0000000000f1', 'ffffffff-0000-4000-8000-000000000006', 'model', 'fbx', 9000,
+   'ffffffff-0000-4000-8000-000000000006/0f0f0f0f-0000-4000-8000-0000000000f1/model.glb',
+   'ffffffff-0000-4000-8000-000000000006/0f0f0f0f-0000-4000-8000-0000000000f1/thumbnail.png'),
+  ('0d0d0d0d-0000-4000-8000-0000000000d1', 'dddddddd-0000-4000-8000-000000000004', 'model', 'glb', 500,
+   'dddddddd-0000-4000-8000-000000000004/0d0d0d0d-0000-4000-8000-0000000000d1/model.glb',
+   'dddddddd-0000-4000-8000-000000000004/0d0d0d0d-0000-4000-8000-0000000000d1/thumbnail.png');
+
+do $$ begin
+  begin
+    insert into public.assets (id, owner_id, kind, source_format, model_path, thumbnail_path)
+    values ('0e0e0e0e-0000-4000-8000-0000000000e1', 'ffffffff-0000-4000-8000-000000000006', 'model', 'glb',
+            'dddddddd-0000-4000-8000-000000000004/x/model.glb', 'dddddddd-0000-4000-8000-000000000004/x/thumbnail.png');
+    insert into perm_test.results (test, passed, detail) values ('uploads stay in their owner''s folder', false, 'insert worked');
+  exception when check_violation then
+    insert into perm_test.results (test, passed, detail) values ('uploads stay in their owner''s folder', true, sqlerrm);
+  end;
+end $$;
+
+set role anon;
+do $$ begin
+  begin
+    perform 1 from public.assets limit 1;
+    insert into perm_test.results (test, passed, detail) values ('visitors cannot read uploads', false, 'select worked');
+  exception when insufficient_privilege then
+    insert into perm_test.results (test, passed, detail) values ('visitors cannot read uploads', true, sqlerrm);
+  end;
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"ffffffff-0000-4000-8000-000000000006","role":"authenticated"}', false);
+do $$
+declare v_id text; v_review text; v_json jsonb;
+begin
+  begin
+    insert into public.assets (id, kind, source_format, model_path, thumbnail_path)
+    values ('0e0e0e0e-0000-4000-8000-0000000000e2', 'model', 'glb',
+            'ffffffff-0000-4000-8000-000000000006/0e0e0e0e-0000-4000-8000-0000000000e2/model.glb',
+            'ffffffff-0000-4000-8000-000000000006/0e0e0e0e-0000-4000-8000-0000000000e2/thumbnail.png');
+    insert into perm_test.results (test, passed, detail) values ('an upload needs its files uploaded first', false, 'insert worked');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('an upload needs its files uploaded first', sqlerrm = 'upload_missing', sqlerrm);
+  end;
+
+  begin
+    update public.assets set status = 'approved' where id = '0f0f0f0f-0000-4000-8000-0000000000f1';
+    insert into perm_test.results (test, passed, detail) values ('people cannot approve their own upload', false, 'update worked');
+  exception when insufficient_privilege then
+    insert into perm_test.results (test, passed, detail) values ('people cannot approve their own upload', true, sqlerrm);
+  end;
+
+  v_id := public.save_drop(jsonb_set(jsonb_set(jsonb_set(current_setting('t.drop')::jsonb, '{placement,lat}', '47.001'),
+                                     '{objectId}', 'null'), '{assetId}', '"0f0f0f0f-0000-4000-8000-0000000000f1"'));
+  perform set_config('t.f1', v_id, false);
+  select review into v_review from public.drops where id = v_id;
+  insert into perm_test.results (test, passed, detail)
+  values ('a drop with an upload always waits for review', v_review = 'pending', v_review);
+
+  begin
+    perform public.save_drop(jsonb_set(jsonb_set(current_setting('t.drop')::jsonb, '{objectId}', 'null'),
+                                       '{assetId}', '"0d0d0d0d-0000-4000-8000-0000000000d1"'));
+    insert into perm_test.results (test, passed, detail) values ('people cannot use someone else''s upload', false, 'save worked');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('people cannot use someone else''s upload', sqlerrm = 'asset_not_found', sqlerrm);
+  end;
+
+  begin
+    perform public.publish_asset('0f0f0f0f-0000-4000-8000-0000000000f1');
+    insert into perm_test.results (test, passed, detail) values ('only staff can publish an upload', false, 'published');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('only staff can publish an upload', sqlerrm = 'not_staff', sqlerrm);
+  end;
+
+  select j into v_json from public.my_drops() j where j ->> 'id' = current_setting('t.f1');
+  insert into perm_test.results (test, passed, detail)
+  values ('owners get their upload''s private files',
+          v_json -> 'assetFiles' ->> 'model' like 'ffffffff-0000-4000-8000-000000000006/%' and v_json -> 'asset' ->> 'model' is null,
+          v_json -> 'assetFiles' ->> 'model');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"eeeeeeee-0000-4000-8000-000000000005","role":"authenticated"}', false);
+do $$ begin
+  insert into perm_test.results (test, passed, detail)
+  select 'staff see uploads in the queue with their files',
+         exists (select 1 from public.review_queue() j
+                 where j ->> 'id' = current_setting('t.f1') and j -> 'assetFiles' ->> 'model' is not null), null;
+
+  begin
+    perform public.review_drop(current_setting('t.f1'), 'approve');
+    insert into perm_test.results (test, passed, detail) values ('an upload is published before its drop is approved', false, 'approved');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('an upload is published before its drop is approved', sqlerrm = 'asset_not_published', sqlerrm);
+  end;
+
+  begin
+    perform public.publish_asset('0f0f0f0f-0000-4000-8000-0000000000f1');
+    insert into perm_test.results (test, passed, detail) values ('publishing needs the files copied to the public bucket', false, 'published');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('publishing needs the files copied to the public bucket', sqlerrm = 'not_copied', sqlerrm);
+  end;
+
+  perform public.review_drop(current_setting('t.f1'), 'reject', 'It''s spam.');
+  insert into perm_test.results (test, passed, detail)
+  select 'not approving a drop turns down its upload', status = 'rejected', status
+  from public.assets where id = '0f0f0f0f-0000-4000-8000-0000000000f1';
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"ffffffff-0000-4000-8000-000000000006","role":"authenticated"}', false);
+do $$ begin
+  begin
+    perform public.save_drop(jsonb_set(jsonb_set(jsonb_set(current_setting('t.drop')::jsonb, '{placement,lat}', '47.002'),
+                                       '{objectId}', 'null'), '{assetId}', '"0f0f0f0f-0000-4000-8000-0000000000f1"'));
+    insert into perm_test.results (test, passed, detail) values ('a turned-down upload cannot be used again', false, 'save worked');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('a turned-down upload cannot be used again', sqlerrm = 'asset_rejected', sqlerrm);
+  end;
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"eeeeeeee-0000-4000-8000-000000000005","role":"authenticated"}', false);
+do $$ begin
+  perform public.review_drop(current_setting('t.f1'), 'reopen');
+  insert into perm_test.results (test, passed, detail)
+  select 'putting a drop back in the queue reopens its upload', status = 'pending', status
+  from public.assets where id = '0f0f0f0f-0000-4000-8000-0000000000f1';
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+-- An approved, published upload as visitors see it.
+update public.assets set status = 'approved',
+  public_model_path = '0d0d0d0d-0000-4000-8000-0000000000d1/model.glb',
+  public_thumbnail_path = '0d0d0d0d-0000-4000-8000-0000000000d1/thumbnail.png'
+where id = '0d0d0d0d-0000-4000-8000-0000000000d1';
+insert into public.drops (id, owner_id, type, title, asset_id, lat, lng, time_zone, review)
+values ('uptest01', 'dddddddd-0000-4000-8000-000000000004', 'object', 'Uploaded model',
+        '0d0d0d0d-0000-4000-8000-0000000000d1', 47.1, -30.0, 'UTC', 'approved');
+
+set role anon;
+do $$
+declare v_json jsonb;
+begin
+  v_json := public.public_drop('uptest01');
+  insert into perm_test.results (test, passed, detail)
+  values ('visitors get only the public copy of an upload',
+          v_json -> 'asset' ->> 'model' = '0d0d0d0d-0000-4000-8000-0000000000d1/model.glb'
+          and v_json -> 'assetFiles' is null
+          and position('dddddddd-0000-4000-8000-000000000004' in v_json::text) = 0,
+          v_json -> 'asset' ->> 'model');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
 -- ===== Clean up, then show the results ====================================
 drop table if exists pg_temp.perm_test_results;
 create temp table perm_test_results as select * from perm_test.results;
 delete from auth.users where id in (
   'aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000002',
   'cccccccc-0000-4000-8000-000000000003', 'dddddddd-0000-4000-8000-000000000004',
-  'eeeeeeee-0000-4000-8000-000000000005');
+  'eeeeeeee-0000-4000-8000-000000000005', 'ffffffff-0000-4000-8000-000000000006');
 delete from public.moderation_events
-where drop_id in (current_setting('t.d1'), current_setting('t.a1'), current_setting('t.a_open'));
+where drop_id in (current_setting('t.d1'), current_setting('t.a1'), current_setting('t.a_open'), current_setting('t.f1'));
 delete from public.reports
 where drop_id in (current_setting('t.a1'), current_setting('t.a_open'))
    or (drop_id is null and contact = 'owner@example.invalid');

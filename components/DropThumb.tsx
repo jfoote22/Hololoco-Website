@@ -25,6 +25,8 @@ export function DropThumb({
           width={128}
           height={128}
           loading={eager ? "eager" : undefined}
+          // Uploaded thumbnails come from storage (or a signed link) and are already small.
+          unoptimized={!src.startsWith("/")}
           className={`object-contain ${imageClassName}`}
         />
       )}

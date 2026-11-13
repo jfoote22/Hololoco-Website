@@ -10,6 +10,8 @@ import { useSession } from "@/components/auth/session";
 import { inputClass, labelClass, primaryButton, secondaryButton } from "@/components/ui";
 import { getProfile, saveDrop, saveProfile, type Profile } from "@/lib/drops/mine";
 import type { Review } from "@/lib/drops/types";
+import { findUpload } from "@/lib/upload/store";
+import { uploadAsset } from "@/lib/upload/upload";
 import { allProblems, draftToInput, type Draft, type Step } from "./draft";
 
 export type Published = { id: string; review: Review };
@@ -20,12 +22,15 @@ export function PublishBox({
   draft,
   onBack,
   onProblem,
+  onUploaded,
   onPublished,
 }: {
   draft: Draft;
   onBack: () => void;
   /** Go to a step that still needs something, and show what. */
   onProblem: (step: Step) => void;
+  /** The photo or model is uploaded; keep its id so a retry doesn't upload it again. */
+  onUploaded: (assetId: string) => void;
   onPublished: (result: Published) => void;
 }) {
   const session = useSession();
@@ -34,7 +39,7 @@ export function PublishBox({
   const [profile, setProfile] = useState<{ userId: string; value: Profile | null } | null>(null);
   const [name, setName] = useState<string | null>(null);
   const [adult, setAdult] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -61,20 +66,44 @@ export function PublishBox({
     if (needsProfile && !shownName.trim()) return setError("Add the name shown on your drops.");
     if (needsProfile && !adult) return setError("Confirm you're 18 or older to publish.");
 
-    const input = draftToInput(draft);
-    if (!input) return onProblem(2);
+    if (!draft.placement) return onProblem(2);
 
-    setBusy(true);
+    setBusy("Publishing…");
     if (needsProfile) {
       const failed = await saveProfile(userId, shownName);
       if (failed) {
-        setBusy(false);
+        setBusy(null);
         return setError(failed);
       }
       setProfile({ userId, value: { displayName: shownName.trim(), adultConfirmed: true, isStaff: current?.isStaff ?? false } });
     }
+
+    // A photo or model goes up first; the drop then points at it.
+    let ready = draft;
+    if (draft.upload && !draft.upload.assetId) {
+      setBusy("Uploading…");
+      const kept = draft.upload.localId ? await findUpload(draft.upload.localId) : null;
+      if (!kept) {
+        setBusy(null);
+        return setError("The photo or model isn't on this device anymore. Choose it again in the first step.");
+      }
+      const uploaded = await uploadAsset(userId, kept);
+      if ("error" in uploaded) {
+        setBusy(null);
+        return setError(uploaded.error);
+      }
+      onUploaded(uploaded.assetId);
+      ready = { ...draft, upload: { ...draft.upload, assetId: uploaded.assetId } };
+      setBusy("Publishing…");
+    }
+
+    const input = draftToInput(ready);
+    if (!input) {
+      setBusy(null);
+      return onProblem(1);
+    }
     const result = await saveDrop(input);
-    setBusy(false);
+    setBusy(null);
     if ("error" in result) return setError(result.error);
     onPublished(result);
   }
@@ -120,17 +149,23 @@ export function PublishBox({
         <button
           type="button"
           onClick={publish}
-          disabled={busy || session.status === "loading" || (userId !== null && current === undefined)}
+          disabled={busy !== null || session.status === "loading" || (userId !== null && current === undefined)}
           className={`${primaryButton} flex-[2]`}
         >
-          {busy ? "Publishing…" : draft.editing ? "Save changes" : "Publish"}
+          {busy ?? (draft.editing ? "Save changes" : "Publish")}
         </button>
       </div>
 
-      {!draft.editing && (
+      {draft.upload && !draft.upload.assetId ? (
         <p className="text-xs text-muted">
-          A person checks each new account&apos;s first drop before it goes on the public map.
+          A person checks every photo and model before it goes on the public map, usually within a day.
         </p>
+      ) : (
+        !draft.editing && (
+          <p className="text-xs text-muted">
+            A person checks each new account&apos;s first drop before it goes on the public map.
+          </p>
+        )
       )}
     </>
   );

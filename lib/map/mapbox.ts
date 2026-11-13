@@ -102,7 +102,8 @@ class MapboxEngine implements MapEngine {
           this.map = null;
           return;
         }
-        console.warn("Map:", event.error?.message ?? event.error);
+        const cause = (event.error as { cause?: unknown } | undefined)?.cause;
+        console.warn("Map:", event.error?.message ?? event.error, cause ?? "");
       });
       map.on("load", () => {
         loaded = true;

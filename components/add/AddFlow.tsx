@@ -3,7 +3,6 @@
 // The add flow: What, Where, When and who. It never leaves the map: the drop
 // appears on the map as soon as it has a place, and sign-in waits until Publish.
 
-import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { dropChanged } from "@/app/actions";
@@ -16,6 +15,7 @@ import { choiceCard, inputClass, labelClass, primaryButton, secondaryButton, tex
 import { limits } from "@/lib/drops/limits";
 import { listMyDrops } from "@/lib/drops/mine";
 import { library, libraryObject } from "@/lib/library/objects";
+import { forgetUpload } from "@/lib/upload/store";
 import {
   clearDraft,
   draftFromDrop,
@@ -27,7 +27,9 @@ import {
   type Draft,
   type Step,
 } from "./draft";
+import { LookPicker } from "./LookPicker";
 import { PublishBox, type Published } from "./PublishBox";
+import { useUploadPreview, type UploadPreview } from "./useUploadPreview";
 import { WhenStep } from "./WhenStep";
 
 const STEP_NAMES: Record<Step, string> = { 1: "What", 2: "Where", 3: "When and who" };
@@ -55,6 +57,7 @@ function AddFlow({ editId }: { editId: string | null }) {
   const [tried, setTried] = useState(false);
 
   const update = (change: Partial<Draft>) => setDraft((d) => ({ ...d, ...change }));
+  const preview = useUploadPreview(draft.upload);
   const userId = session.status === "signed-in" ? session.user.id : null;
 
   // Load the drop being edited.
@@ -86,16 +89,16 @@ function AddFlow({ editId }: { editId: string | null }) {
   // Show the draft on the map once it has a place.
   useEffect(() => {
     if (!draft.placement) return setDraftPin(null);
-    const object = libraryObject(draft.objectId);
+    const object = draft.upload ? null : libraryObject(draft.objectId);
     setDraftPin({
       id: draft.editing ?? "draft",
       type: draft.type,
       title: "Your drop",
       placement: draft.placement,
-      thumbnail: object?.thumbnail,
-      modelUrl: object?.model,
+      thumbnail: draft.upload ? preview?.thumbnail : object?.thumbnail,
+      modelUrl: draft.upload ? preview?.model : object?.model,
     });
-  }, [draft.placement, draft.objectId, draft.type, draft.editing, setDraftPin]);
+  }, [draft.placement, draft.objectId, draft.upload, preview, draft.type, draft.editing, setDraftPin]);
   useEffect(() => () => setDraftPin(null), [setDraftPin]);
 
   // Dragging the pin moves the drop.
@@ -134,6 +137,7 @@ function AddFlow({ editId }: { editId: string | null }) {
   }
 
   function startOver() {
+    if (draft.upload?.localId) void forgetUpload(draft.upload.localId);
     clearDraft();
     setTried(false);
     setDraft(newDraft());
@@ -142,6 +146,7 @@ function AddFlow({ editId }: { editId: string | null }) {
 
   function onPublished({ id, review }: Published) {
     const editing = draft.editing;
+    if (draft.upload?.localId) void forgetUpload(draft.upload.localId);
     clearDraft();
     // This screen stays alive in the background, so reset it for next time.
     setDraft(newDraft());
@@ -193,7 +198,7 @@ function AddFlow({ editId }: { editId: string | null }) {
         </ol>
       </div>
 
-      {draft.step === 1 && <WhatStep draft={draft} update={update} />}
+      {draft.step === 1 && <WhatStep draft={draft} update={update} preview={preview} />}
       {draft.step === 2 && (
         <WhereStep draft={draft} update={update} mapReady={status === "ready"} mapUnavailable={status === "unavailable"} />
       )}
@@ -216,6 +221,9 @@ function AddFlow({ editId }: { editId: string | null }) {
               goTo(step);
               setTried(true);
             }}
+            onUploaded={(assetId) =>
+              setDraft((d) => (d.upload ? { ...d, upload: { ...d.upload, assetId } } : d))
+            }
             onPublished={onPublished}
           />
         ) : (
@@ -242,7 +250,7 @@ function AddFlow({ editId }: { editId: string | null }) {
 
 type StepProps = { draft: Draft; update: (change: Partial<Draft>) => void };
 
-function WhatStep({ draft, update }: StepProps) {
+function WhatStep({ draft, update, preview }: StepProps & { preview: UploadPreview | null }) {
   const titleLeft = limits.titleMaxChars - draft.title.length;
   const descriptionLeft = limits.descriptionMaxChars - draft.description.length;
   return (
@@ -306,28 +314,7 @@ function WhatStep({ draft, update }: StepProps) {
         </span>
       </label>
 
-      <fieldset>
-        <legend className="mb-2 text-sm font-semibold">How it looks</legend>
-        <div className="grid grid-cols-3 gap-2">
-          {library.map((object) => (
-            <label
-              key={object.id}
-              className="flex cursor-pointer flex-col items-center gap-1 rounded-lg border border-line p-2 text-center text-xs has-checked:border-accent has-checked:bg-accent-wash has-focus-visible:outline-2 has-focus-visible:outline-accent"
-            >
-              <input
-                type="radio"
-                name="look"
-                checked={draft.objectId === object.id}
-                onChange={() => update({ objectId: object.id })}
-                className="sr-only"
-              />
-              <Image src={object.thumbnail} alt="" width={128} height={128} className="size-14 object-contain" />
-              {object.name}
-            </label>
-          ))}
-        </div>
-        <p className="mt-2 text-xs text-muted">Photos and your own 3D models are coming later.</p>
-      </fieldset>
+      <LookPicker draft={draft} update={update} preview={preview} />
     </div>
   );
 }

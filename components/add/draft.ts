@@ -8,6 +8,21 @@ import { library } from "@/lib/library/objects";
 
 export type Step = 1 | 2 | 3;
 
+/** A photo or model chosen for the drop instead of a ready-made object. */
+export type DraftUpload = {
+  kind: "photo" | "model";
+  /** Processed and waiting in this browser (lib/upload/store) until Publish. */
+  localId: string | null;
+  /** Uploaded already: after Publish, or a drop being edited. */
+  assetId: string | null;
+  /** Private file paths of an uploaded one, to preview it. */
+  files: { model: string; thumbnail: string } | null;
+  name: string;
+  triangles: number;
+  originalTriangles: number;
+  notes: string[];
+};
+
 export type Draft = {
   version: 1;
   /** The drop being edited, or null for a new one. */
@@ -17,6 +32,8 @@ export type Draft = {
   title: string;
   description: string;
   objectId: string;
+  /** Set when the drop uses a photo or model instead of objectId. */
+  upload: DraftUpload | null;
   placement: Placement | null;
   timeZone: string;
   timing: Timing;
@@ -44,6 +61,7 @@ export function newDraft(): Draft {
     title: "",
     description: "",
     objectId: library[0]?.id ?? "gift",
+    upload: null,
     placement: null,
     timeZone: browserTimeZone(),
     timing: { kind: "always" },
@@ -56,7 +74,7 @@ export function loadDraft(): Draft | null {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return null;
     const draft = JSON.parse(raw) as Draft;
-    return draft?.version === 1 ? draft : null;
+    return draft?.version === 1 ? { ...draft, upload: draft.upload ?? null } : null;
   } catch {
     return null;
   }
@@ -87,6 +105,19 @@ export function draftFromDrop(drop: MyDrop): Draft {
     title: drop.title,
     description: drop.description,
     objectId: drop.look.kind === "library" ? drop.look.objectId : (library[0]?.id ?? "gift"),
+    upload:
+      drop.look.kind === "upload"
+        ? {
+            kind: drop.look.assetKind,
+            localId: null,
+            assetId: drop.look.assetId,
+            files: drop.assetFiles ? { model: drop.assetFiles.model, thumbnail: drop.assetFiles.thumbnail } : null,
+            name: drop.assetFiles?.sourceName ?? (drop.look.assetKind === "photo" ? "Your photo" : "Your model"),
+            triangles: drop.assetFiles?.triangles ?? 0,
+            originalTriangles: drop.assetFiles?.triangles ?? 0,
+            notes: [],
+          }
+        : null,
     placement: drop.placement,
     timeZone: drop.timeZone,
     timing: drop.timing,
@@ -94,15 +125,18 @@ export function draftFromDrop(drop: MyDrop): Draft {
   };
 }
 
+/** What to save. An upload must already have its assetId (PublishBox uploads it first). */
 export function draftToInput(draft: Draft): DropInput | null {
   if (!draft.placement) return null;
+  if (draft.upload && !draft.upload.assetId) return null;
   const round = (n: number) => Math.round(n * 1e7) / 1e7;
   return {
     ...(draft.editing ? { id: draft.editing } : {}),
     type: draft.type,
     title: draft.title.trim(),
     description: draft.description.trim(),
-    objectId: draft.objectId,
+    objectId: draft.upload ? null : draft.objectId,
+    assetId: draft.upload?.assetId ?? null,
     placement: { ...draft.placement, lat: round(draft.placement.lat), lng: round(draft.placement.lng) },
     timeZone: draft.timeZone,
     timing: draft.timing,

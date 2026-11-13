@@ -7,11 +7,30 @@ export type DropStatus = "draft" | "in_review" | "live" | "paused" | "rejected";
 
 export type Audience = "everyone" | "link";
 
-/** What the drop looks like: a ready-made object, a framed photo, or an uploaded GLB. */
-export type Look =
-  | { kind: "library"; objectId: string }
-  | { kind: "photo"; assetId: string }
-  | { kind: "glb"; assetId: string };
+/** A photo or 3D model someone uploaded. Public files exist only once staff approve it. */
+export type UploadLook = {
+  kind: "upload";
+  assetId: string;
+  assetKind: "photo" | "model";
+  status: "pending" | "approved" | "rejected";
+  /** Paths in the public drop-assets bucket, or null until approved. */
+  model: string | null;
+  thumbnail: string | null;
+  photo: string | null;
+};
+
+/** What the drop looks like: a ready-made object, or an uploaded photo (in a frame) or model. */
+export type Look = { kind: "library"; objectId: string } | UploadLook;
+
+/** The private files of the person's own upload (or any, for staff), in the uploads bucket. */
+export type AssetFiles = {
+  model: string;
+  thumbnail: string;
+  photo: string | null;
+  triangles: number | null;
+  sourceName: string | null;
+  sourceFormat: string;
+};
 
 export type Placement = {
   lat: number;
@@ -75,6 +94,11 @@ export type PublicDrop = Drop & {
   offer?: Offer;
   /** One of the made-up drops in lib/drops/sample.ts. */
   sample?: boolean;
+  /**
+   * Addresses to show this drop with before it's public, for its owner or staff
+   * (short-lived signed links to the private upload).
+   */
+  preview?: { model?: string; thumbnail?: string; photo?: string };
 };
 
 /** Set by the database: an account's drops are reviewed until one is approved. */
@@ -91,6 +115,8 @@ export type MyDrop = PublicDrop & {
   createdAt: string;
   /** Hidden from the map while staff check a report about it. */
   hiddenForReport: boolean;
+  /** Its upload's private files, if it uses one. */
+  assetFiles: AssetFiles | null;
 };
 
 /** What the add flow sends to the database (save_drop). No id means a new drop. */
@@ -99,7 +125,9 @@ export type DropInput = {
   type: "object" | "message";
   title: string;
   description: string;
-  objectId: string;
+  /** A ready-made object, or null when the drop uses an upload. */
+  objectId: string | null;
+  assetId: string | null;
   placement: Placement;
   timeZone: string;
   timing: Timing;

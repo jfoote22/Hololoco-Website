@@ -29,6 +29,9 @@ export function errorText(error: DbError): string {
     return "The end has to be after the start.";
   if (message.includes("not_found")) return "That drop isn't one of yours, or it's been deleted.";
   if (message.includes("not_staff")) return "Only Hololoco staff can do that.";
+  if (message.includes("asset_rejected")) return "That photo or model wasn't approved. Choose another look.";
+  if (message.includes("asset_not_found")) return "That photo or model isn't available anymore. Choose another look.";
+  if (message.includes("asset_not_published")) return "Its photo or model hasn't been published yet.";
   if (message.includes("reason_needed")) return "Say why it isn't approved. The owner sees the reason.";
   if (message.includes("bad_time_zone")) return "That time zone isn't one we know. Pick another.";
   if (error?.code === "23514") return "Something is outside the limits. Check the title, description, size and height.";

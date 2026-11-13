@@ -3,7 +3,8 @@
 
 import { myDropFromJson, type DropJson } from "@/lib/drops/json";
 import { errorText } from "@/lib/drops/mine";
-import type { MyDrop } from "@/lib/drops/types";
+import { PUBLIC_BUCKET, UPLOADS_BUCKET } from "@/lib/assets";
+import type { AssetFiles, MyDrop, UploadLook } from "@/lib/drops/types";
 import { browserClient } from "@/lib/supabase/browser";
 
 export type QueueItem = MyDrop & {
@@ -111,4 +112,44 @@ export function timeAgo(iso: string, now = Date.now()): string {
   if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   const days = Math.round(hours / 24);
   return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+const alreadyThere = (message: string) => /already exists|duplicate/i.test(message);
+
+/**
+ * Publish an upload before approving its drop: copy its files to the public
+ * bucket under the upload's id, then mark it approved. For models the map's
+ * thumbnail is the reviewer's own picture of the actual file, not the uploader's.
+ */
+export async function publishUpload(look: UploadLook, files: AssetFiles, picture: Blob | null): Promise<string | null> {
+  const client = browserClient();
+  if (!client) return errorText(null);
+  const id = look.assetId;
+  const uploads = client.storage.from(UPLOADS_BUCKET);
+
+  const copies: [string, string][] = [[files.model, `${id}/model.glb`]];
+  if (files.photo) copies.push([files.photo, `${id}/photo.jpg`]);
+  if (!(look.assetKind === "model" && picture)) copies.push([files.thumbnail, `${id}/thumbnail.png`]);
+  for (const [from, to] of copies) {
+    const { error } = await uploads.copy(from, to, { destinationBucket: PUBLIC_BUCKET });
+    if (error && !alreadyThere(error.message)) return `Couldn't publish its files: ${error.message}`;
+  }
+  if (look.assetKind === "model" && picture) {
+    const { error } = await client.storage
+      .from(PUBLIC_BUCKET)
+      .upload(`${id}/thumbnail.png`, picture, { contentType: "image/png", upsert: false, cacheControl: "3600" });
+    if (error && !alreadyThere(error.message)) return `Couldn't publish its picture: ${error.message}`;
+  }
+
+  const { error } = await client.rpc("publish_asset", { asset_id: id });
+  return error ? errorText(error) : null;
+}
+
+/** Take an upload's public copies down (after a drop is taken down). */
+export async function unpublishUpload(assetId: string): Promise<void> {
+  const client = browserClient();
+  if (!client) return;
+  await client.storage
+    .from(PUBLIC_BUCKET)
+    .remove([`${assetId}/model.glb`, `${assetId}/thumbnail.png`, `${assetId}/photo.jpg`]);
 }

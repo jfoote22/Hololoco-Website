@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ImageResponse } from "next/og";
-import { bylineLong, thumbnailFor, timingText } from "@/lib/drops/format";
+import { bylineLong, photoFor, thumbnailFor, timingText } from "@/lib/drops/format";
 import { getDrop } from "@/lib/drops/page";
 
 // The link preview for a drop: its object, title and who posted it.
@@ -16,10 +16,7 @@ const accent = "#006d7a";
 
 export default async function Image({ params }: { params: Promise<{ id: string }> }) {
   const drop = await getDrop((await params).id);
-  const thumb = drop ? thumbnailFor(drop) : null;
-  const picture = thumb
-    ? `data:image/png;base64,${readFileSync(join(process.cwd(), "public", thumb)).toString("base64")}`
-    : null;
+  const picture = drop ? await pictureFor(photoFor(drop) ?? thumbnailFor(drop)) : null;
   const when = drop ? timingText(drop.timing) : null;
 
   return new ImageResponse(
@@ -46,4 +43,18 @@ export default async function Image({ params }: { params: Promise<{ id: string }
     ),
     size,
   );
+}
+
+/** The picture as a data URL: a ready-made thumbnail from disk, or an upload from storage. */
+async function pictureFor(src: string | null): Promise<string | null> {
+  if (!src) return null;
+  try {
+    if (src.startsWith("/")) return `data:image/png;base64,${readFileSync(join(process.cwd(), "public", src)).toString("base64")}`;
+    const response = await fetch(src);
+    if (!response.ok) return null;
+    const type = response.headers.get("content-type") ?? "image/png";
+    return `data:${type};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`;
+  } catch {
+    return null;
+  }
 }

@@ -1,5 +1,6 @@
 // Plain-language words for drops, shared by the map, lists, drop pages and link previews.
 
+import { publicAssetUrl } from "@/lib/assets";
 import { libraryObject } from "@/lib/library/objects";
 import type { DropType, Offer, PublicDrop, Timing, Weekday, WeeklyBlock } from "./types";
 
@@ -21,11 +22,21 @@ export function bylineLong(drop: PublicDrop): string {
 }
 
 export function thumbnailFor(drop: PublicDrop): string | null {
-  return drop.look.kind === "library" ? (libraryObject(drop.look.objectId)?.thumbnail ?? null) : null;
+  if (drop.preview?.thumbnail) return drop.preview.thumbnail;
+  if (drop.look.kind === "library") return libraryObject(drop.look.objectId)?.thumbnail ?? null;
+  return publicAssetUrl(drop.look.thumbnail);
 }
 
 export function modelFor(drop: PublicDrop): string | null {
-  return drop.look.kind === "library" ? (libraryObject(drop.look.objectId)?.model ?? null) : null;
+  if (drop.preview?.model) return drop.preview.model;
+  if (drop.look.kind === "library") return libraryObject(drop.look.objectId)?.model ?? null;
+  return publicAssetUrl(drop.look.model);
+}
+
+/** The full photo of a photo drop, for its page. */
+export function photoFor(drop: PublicDrop): string | null {
+  if (drop.look.kind !== "upload" || drop.look.assetKind !== "photo") return null;
+  return drop.preview?.photo ?? publicAssetUrl(drop.look.photo);
 }
 
 /** "Saves $3, one per person" */

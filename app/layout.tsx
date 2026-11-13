@@ -22,7 +22,9 @@ export const viewport: Viewport = {
 // and every screen is the one floating panel on top of it.
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${dmSans.variable} ${outfit.variable} antialiased`}>
+    // Browser extensions (like Scribe) add attributes to <html> before React loads.
+    // This ignores those on this one tag only; everything inside is still checked.
+    <html lang="en" className={`${dmSans.variable} ${outfit.variable} antialiased`} suppressHydrationWarning>
       <body className="overflow-hidden">
         <MapProvider>
           <MapView />

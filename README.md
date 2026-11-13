@@ -6,7 +6,7 @@ This repository is the website at hololoco.com. It replaces the 2021 portal and 
 
 ## Status
 
-Phase 0: the empty app. Every screen exists as a placeholder over a stand-in map, so the layout and routes are in place before features land.
+Phase 1, the map, is built and waiting on its gate: the 3D map, place and drop search, the type filter, pins with 3D models, the drop page with a link preview, and six sample drops in Lower Manhattan. The gate is a test on a mid-range phone. The other screens are still placeholders.
 
 | Phase | Delivers | Gate to move on |
 | --- | --- | --- |
@@ -28,7 +28,20 @@ npm run dev
 
 Then open http://localhost:3000. `npm run lint` and `npm run build` should both pass before every push.
 
-Nothing needs environment variables yet. When Mapbox (Phase 1) and Supabase (Phase 2) arrive, copy `.env.example` to `.env.local` and fill it in. Never commit real values.
+The map needs a Mapbox public token: copy `.env.example` to `.env.local` and set `NEXT_PUBLIC_MAPBOX_TOKEN`. Without it the panel still lists every drop and says the map couldn't load. Supabase settings come in Phase 2. Never commit real values.
+
+If a change to `app/globals.css` doesn't show up while `npm run dev` is running, restart it.
+
+### Ready-made objects
+
+The library in `public/library/` is generated, not drawn by hand:
+
+```sh
+node scripts/library/build-models.mjs       # GLB files, 1 m across, from simple shapes
+node scripts/library/render-thumbnails.mjs  # PNG thumbnails, rendered with headless Chrome
+```
+
+Then list any new object in `lib/library/objects.ts`.
 
 ## Stack
 
@@ -37,19 +50,32 @@ Nothing needs environment variables yet. When Mapbox (Phase 1) and Supabase (Pha
 | App | Next.js 16 (App Router, Cache Components), TypeScript, Tailwind CSS 4 |
 | Hosting | Vercel |
 | Data and sign-in | Supabase: Postgres with PostGIS, Auth, Storage |
-| Map | Mapbox GL JS with three.js models, behind `lib/map/engine.ts` |
-| 3D format | GLB only |
+| Map | Mapbox GL JS, Standard style (faded theme), behind `lib/map/engine.ts` |
+| 3D models | GLB only, drawn by Mapbox's own model layer; three.js only builds the library |
+| Place search | Mapbox Geocoding API v6 (addresses and places, not businesses) |
+
+## How the map works
+
+- Each drop is a pin (a real button, so it works with a keyboard) and, from zoom 15.5 in, its 3D model at its place, height and turn. The pin stands on top of the model.
+- Models are drawn larger than life so they can be seen from a block away: twice their size plus 12 m (a 6 m object shows as 24 m). The drop keeps its true size for AR later.
+- The panel lists every drop in view, which is also how screen reader users reach each pin.
+- Drops come from `lib/drops/source.ts`. In Phase 1 that reads the sample set in `lib/drops/sample.ts`; in Phase 2 the same functions query Supabase, and the database decides what the public sees. To move the samples, change `SAMPLE_CENTRE`.
+- A person's location is only used in the browser, when they press "Show my location". Place search sends Mapbox the typed words and the centre of the map being viewed.
 
 ## Layout
 
 ```
-app/                 screens: map (/), d/[id], add, mine, business, report, review, legal
-components/          panel, map view, shared pieces
-lib/map/             MapEngine interface (the Mapbox adapter comes in Phase 1)
-lib/drops/           drop types and placement limits
+app/                 screens: map (/), d/[id] (+ link preview image), add, mine, business, report, review, legal
+components/          panel (bottom sheet on phones), map view, search, filter, list, share
+components/map/      shared map state, and helpers pages use to focus a drop or size the sheet
+lib/map/             MapEngine interface, the Mapbox adapter, place search
+lib/drops/           drop types, limits, wording, sample drops, where drops come from
+lib/library/         the ready-made object list
+public/library/      generated GLB models and PNG thumbnails
+scripts/library/     the generators for public/library/
 ```
 
-Still to come, as each phase needs them: `lib/supabase/` (clients), `public/library/` (ready-made GLB objects), `supabase/migrations/` (schema and row-level rules), `supabase/functions/` (upload checks), and `tests/` (permission tests and an add-flow browser test).
+Still to come, as each phase needs them: `lib/supabase/` (clients), `supabase/migrations/` (schema and row-level rules), `supabase/functions/` (upload checks), and `tests/` (permission tests and an add-flow browser test).
 
 ## Ground rules
 

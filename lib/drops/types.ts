@@ -53,9 +53,21 @@ export type Drop = {
 /** Public offer fields. The promo code lives in its own table and only a claim returns it. */
 export type Offer = {
   dropId: string;
+  /** Shown as written, e.g. "$3". */
   savings: string;
   quantity: number;
   remaining: number;
   perPersonLimit: number;
   terms: string;
 };
+
+/** The public face of whoever posted a drop. */
+export type Owner = {
+  name: string;
+  kind: "individual" | "business";
+  /** Businesses only: set by staff after a verification check. */
+  verified: boolean;
+};
+
+/** A drop as a visitor sees it: the drop, its owner's public name, and an offer's public fields. */
+export type PublicDrop = Drop & { owner: Owner; offer?: Offer };

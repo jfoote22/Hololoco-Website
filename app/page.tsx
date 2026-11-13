@@ -1,38 +1,32 @@
 import Link from "next/link";
+import { SheetHeight } from "@/components/map/SheetHeight";
+import { NearbyList } from "@/components/NearbyList";
+import { SearchBox } from "@/components/SearchBox";
 import { TypeFilter } from "@/components/TypeFilter";
 
 export default function MapScreen() {
   return (
     <>
-      <div className="flex flex-col gap-1">
-        <h1 className="text-[22px] font-bold">Add something to the map</h1>
-        <p className="text-sm text-muted">Place an object, an offer or a message at a real place, for anyone to find.</p>
+      <h1 className="sr-only">Hololoco map</h1>
+      <SheetHeight size="peek" />
+
+      {/* On phones, search and the filter float at the top of the map instead of sitting in the sheet. */}
+      <div className="flex flex-col gap-2 md:gap-3 max-md:fixed max-md:inset-x-3 max-md:top-3">
+        <SearchBox />
+        <TypeFilter />
       </div>
 
       <Link
         href="/add"
-        className="flex min-h-11 items-center justify-center rounded-[9px] bg-accent px-4 font-bold text-white hover:bg-accent-strong"
+        className="flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-[10px] bg-accent px-4 font-semibold text-white hover:bg-accent-strong"
       >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
         Add to the map
       </Link>
 
-      <form role="search" action="/" className="flex flex-col gap-3">
-        <label htmlFor="q" className="sr-only">
-          Search places
-        </label>
-        <input
-          id="q"
-          name="q"
-          type="search"
-          placeholder="Search places"
-          className="min-h-11 w-full rounded-lg border border-[#c3ced4] bg-surface px-3"
-        />
-        <TypeFilter />
-      </form>
-
-      <div className="rounded-(--radius-panel) border border-dashed border-line px-4 py-6 text-center text-sm text-muted">
-        Nothing nearby yet. Drops show up here once the map is connected.
-      </div>
+      <NearbyList />
     </>
   );
 }

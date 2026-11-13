@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { DM_Sans, Outfit } from "next/font/google";
+import { MapProvider } from "@/components/map/MapProvider";
 import { MapView } from "@/components/MapView";
 import { Panel } from "@/components/Panel";
 import "./globals.css";
@@ -23,8 +24,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${dmSans.variable} ${outfit.variable} antialiased`}>
       <body className="overflow-hidden">
-        <MapView />
-        <Panel>{children}</Panel>
+        <MapProvider>
+          <MapView />
+          <Panel>{children}</Panel>
+        </MapProvider>
       </body>
     </html>
   );

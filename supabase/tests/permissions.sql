@@ -332,8 +332,8 @@ do $$ begin
   end;
 
   begin
-    perform public.save_drop(jsonb_set(jsonb_set(current_setting('t.drop')::jsonb, '{placement,lat}', '46.0003'),
-                                       '{audience}', '"link"'));
+    perform set_config('t.d1', public.save_drop(jsonb_set(jsonb_set(current_setting('t.drop')::jsonb, '{placement,lat}', '46.0003'),
+                                       '{audience}', '"link"')), false);
     insert into perm_test.results (test, passed, detail) values ('link-only drops don''t count toward crowding', true, null);
   exception when others then
     insert into perm_test.results (test, passed, detail) values ('link-only drops don''t count toward crowding', false, sqlerrm);
@@ -357,6 +357,112 @@ end $$;
 reset role;
 select set_config('request.jwt.claims', '', false);
 
+-- ===== The review queue ===================================================
+-- D's link-only drop (t.d1) is D's first, so it's waiting for review.
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"dddddddd-0000-4000-8000-000000000004","role":"authenticated"}', false);
+do $$ begin
+  begin
+    perform public.review_queue();
+    insert into perm_test.results (test, passed, detail) values ('only staff can see the review queue', false, 'queue returned');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('only staff can see the review queue', sqlerrm = 'not_staff', sqlerrm);
+  end;
+
+  begin
+    perform public.review_drop(current_setting('t.d1'), 'approve');
+    insert into perm_test.results (test, passed, detail) values ('only staff can approve', false, 'approve worked');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('only staff can approve', sqlerrm = 'not_staff', sqlerrm);
+  end;
+
+  begin
+    perform 1 from public.moderation_events limit 1;
+    insert into perm_test.results (test, passed, detail) values ('people cannot read the moderation log', false, 'select worked');
+  exception when insufficient_privilege then
+    insert into perm_test.results (test, passed, detail) values ('people cannot read the moderation log', true, sqlerrm);
+  end;
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role anon;
+do $$ begin
+  begin
+    perform public.review_queue();
+    insert into perm_test.results (test, passed, detail) values ('visitors cannot call the review functions', false, 'queue returned');
+  exception when insufficient_privilege then
+    insert into perm_test.results (test, passed, detail) values ('visitors cannot call the review functions', true, sqlerrm);
+  end;
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"eeeeeeee-0000-4000-8000-000000000005","role":"authenticated"}', false);
+do $$
+declare v_json jsonb;
+begin
+  insert into perm_test.results (test, passed, detail)
+  select 'staff see drops waiting for review',
+         exists (select 1 from public.review_queue() j where j ->> 'id' = current_setting('t.d1')), null;
+
+  begin
+    perform public.review_drop(current_setting('t.d1'), 'reject');
+    insert into perm_test.results (test, passed, detail) values ('a rejection needs a reason', false, 'reject worked');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('a rejection needs a reason', sqlerrm = 'reason_needed', sqlerrm);
+  end;
+
+  v_json := public.review_drop(current_setting('t.d1'), 'reject', 'It''s spam.');
+  insert into perm_test.results (test, passed, detail)
+  values ('staff can reject with a reason', v_json ->> 'review' = 'rejected' and v_json ->> 'reviewReason' = 'It''s spam.', v_json ->> 'review');
+
+  begin
+    delete from public.moderation_events;
+    insert into perm_test.results (test, passed, detail) values ('nobody can delete the moderation log', false, 'delete worked');
+  exception when insufficient_privilege then
+    insert into perm_test.results (test, passed, detail) values ('nobody can delete the moderation log', true, sqlerrm);
+  end;
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"dddddddd-0000-4000-8000-000000000004","role":"authenticated"}', false);
+do $$
+declare v_review text;
+begin
+  insert into perm_test.results (test, passed, detail)
+  select 'owners see why a drop was rejected', j ->> 'reviewReason' = 'It''s spam.', j ->> 'reviewReason'
+  from public.my_drops() j where j ->> 'id' = current_setting('t.d1');
+
+  perform public.save_drop(jsonb_set(jsonb_set(jsonb_set(current_setting('t.drop')::jsonb, '{placement,lat}', '46.0003'),
+                                     '{audience}', '"link"'), '{id}', to_jsonb(current_setting('t.d1'))));
+  select review into v_review from public.drops where id = current_setting('t.d1');
+  insert into perm_test.results (test, passed, detail)
+  values ('editing a rejected drop sends it back for review', v_review = 'pending', v_review);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"eeeeeeee-0000-4000-8000-000000000005","role":"authenticated"}', false);
+do $$
+declare v_json jsonb;
+begin
+  v_json := public.review_drop(current_setting('t.d1'), 'approve');
+  insert into perm_test.results (test, passed, detail)
+  values ('staff can approve', v_json ->> 'review' = 'approved' and v_json ->> 'reviewReason' is null, v_json ->> 'review');
+
+  insert into perm_test.results (test, passed, detail)
+  select 'every decision is logged', count(*) = 2, count(*)::text
+  from public.review_history(100) j where j ->> 'dropId' = current_setting('t.d1');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
 -- ===== Clean up, then show the results ====================================
 drop table if exists pg_temp.perm_test_results;
 create temp table perm_test_results as select * from perm_test.results;
@@ -364,6 +470,7 @@ delete from auth.users where id in (
   'aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000002',
   'cccccccc-0000-4000-8000-000000000003', 'dddddddd-0000-4000-8000-000000000004',
   'eeeeeeee-0000-4000-8000-000000000005');
+delete from public.moderation_events where drop_id = current_setting('t.d1');
 drop schema perm_test cascade;
 
 select n, passed, test, detail from perm_test_results order by n;

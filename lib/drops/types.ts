@@ -83,6 +83,8 @@ export type Review = "pending" | "approved" | "rejected";
 /** One of the signed-in person's own drops, with what only they see. */
 export type MyDrop = PublicDrop & {
   review: Review;
+  /** Why staff didn't approve it, shown to the owner. */
+  reviewReason: string | null;
   paused: boolean;
   /** Within its hours right now, in its own time zone. */
   openNow: boolean;

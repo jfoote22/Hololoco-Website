@@ -15,6 +15,8 @@ export type DropJson = {
   audience: Audience;
   owner: Owner;
   review: Review;
+  /** Why staff didn't approve it; only on rejected drops. */
+  reviewReason?: string | null;
   paused: boolean;
   openNow: boolean;
   createdAt: string;
@@ -40,5 +42,12 @@ export function dropFromJson(j: DropJson): PublicDrop {
 }
 
 export function myDropFromJson(j: DropJson): MyDrop {
-  return { ...dropFromJson(j), review: j.review, paused: j.paused, openNow: j.openNow, createdAt: j.createdAt };
+  return {
+    ...dropFromJson(j),
+    review: j.review,
+    reviewReason: j.reviewReason ?? null,
+    paused: j.paused,
+    openNow: j.openNow,
+    createdAt: j.createdAt,
+  };
 }

@@ -6,7 +6,7 @@ This repository is the website at hololoco.com. It replaces the 2021 portal and 
 
 ## Status
 
-Phase 2, adding to the map, is built and waiting on its setup (below) and its gate: sign-in at Publish (an emailed code or link, and Google once it's switched on), the three-step add flow with ready-made objects, schedules, and Your drops with edit, pause and delete. The database enforces the rules. Phase 1's gate, a test on a mid-range phone, is still open too. Offers, uploads, reports and the review queue come in later phases.
+Phase 3, safety, has started: the review queue is built. Phase 2, adding to the map, is built and waiting on its gate: sign-in at Publish (an emailed code or link, and Google once it's switched on), the three-step add flow with ready-made objects, schedules, and Your drops with edit, pause and delete. The database enforces the rules. Phase 1's gate, a test on a mid-range phone, is still open too. Offers, uploads, reports and the review queue come in later phases.
 
 | Phase | Delivers | Gate to move on |
 | --- | --- | --- |
@@ -48,7 +48,7 @@ Once per project, in Hololoco's own Supabase project:
 5. Email delivery: Supabase's built-in email only reaches members of the Supabase team. For anyone else, set up custom SMTP (Authentication → Emails → SMTP), or rely on Google.
 6. Google (optional): create a Web OAuth client in Google Cloud with the redirect URI `https://<project-ref>.supabase.co/auth/v1/callback`, add it under Authentication → Providers → Google, then set `NEXT_PUBLIC_GOOGLE_SIGN_IN=on`.
 
-Until the review queue arrives (Phase 3), approve an account's first drop in the SQL editor: `update public.drops set review = 'approved' where id = '<drop id>';`. Staff skip review and limits: `update public.profiles set is_staff = true where id = '<user id>';`.
+Staff review drops at `/review` and skip review and limits themselves. Make someone staff in the SQL editor: `update public.profiles set is_staff = true where id = '<user id>';`.
 
 ### Ready-made objects
 
@@ -85,6 +85,7 @@ Then list any new object in `lib/library/objects.ts`, and add it to the `library
 - The draft is saved in the person's browser as they go, so it survives signing in. Sign-in appears only when they press Publish. The email has a code to type, which keeps them in the same tab, and a link.
 - Publishing calls `save_drop` straight from the browser. The database decides everything: who owns what, the limits (10 drops at a time, 5 new a day, 20 public drops within 100 m, 30 m size, 100 m height), and review. Each account's drops stay in review until one has been approved. Its errors are short codes that `lib/drops/mine.ts` turns into plain words.
 - Visitors can't read any table. Public drops come only from the `public_*` functions, which return approved, unpaused drops (and only those within their hours, for the map).
+- Staff work through the queue at `/review`: approve, or don't approve with a reason the owner sees in Your drops. Editing a drop that wasn't approved sends it back to the queue. Every decision goes into `moderation_events`, which the API can't change or delete, and can be undone from the list of recent decisions.
 - Drop pages are cached for a few minutes. Saving, pausing or deleting a drop refreshes its page.
 - Sample drops show alongside real ones until `NEXT_PUBLIC_SAMPLE_DROPS=off`.
 
@@ -97,10 +98,12 @@ components/          panel (bottom sheet on phones), map view, search, filter, l
 components/add/      the add flow and its draft
 components/auth/     sign-in and who is signed in
 components/mine/     Your drops
+components/review/   the staff review queue
 components/map/      shared map state, and helpers pages use to focus a drop or size the sheet
 lib/map/             MapEngine interface, the Mapbox adapter, place search
 lib/drops/           drop types, limits, wording, sample drops, public reads, your own drops
 lib/library/         the ready-made object list
+lib/review.ts        staff calls for the review queue
 lib/supabase/        Supabase clients for the browser, the server and public reads
 public/library/      generated GLB models and PNG thumbnails
 scripts/library/     the generators for public/library/

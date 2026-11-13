@@ -13,14 +13,18 @@ import { DropThumb } from "@/components/DropThumb";
 import { useMap } from "@/components/map/MapProvider";
 import { primaryButton, textButton } from "@/components/ui";
 import { timingText, typeLabel } from "@/lib/drops/format";
-import { deleteDrop, listMyDrops, setPaused } from "@/lib/drops/mine";
+import { deleteDrop, getProfile, listMyDrops, setPaused } from "@/lib/drops/mine";
 import type { MyDrop } from "@/lib/drops/types";
 
-type Loaded = { userId: string; drops: MyDrop[] | null; error: string | null };
+type Loaded = { userId: string; drops: MyDrop[] | null; error: string | null; isStaff: boolean };
 
 function statusOf(drop: MyDrop): { word: string; tone: string; line?: string } {
   if (drop.review === "rejected")
-    return { word: "Not approved", tone: "text-rejected", line: "It broke the content rules, so it isn't shown." };
+    return {
+      word: "Not approved",
+      tone: "text-rejected",
+      line: `${drop.reviewReason ?? "It doesn't follow the content rules."} Edit it to send it back for review.`,
+    };
   if (drop.review === "pending")
     return { word: "In review", tone: "text-review", line: "Only you can see it until a person has checked it." };
   if (drop.paused) return { word: "Paused", tone: "text-muted", line: "Hidden until you resume it." };
@@ -42,9 +46,9 @@ export function YourDrops() {
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    listMyDrops()
-      .then((drops) => !cancelled && setLoaded({ userId, drops, error: null }))
-      .catch((error: Error) => !cancelled && setLoaded({ userId, drops: null, error: error.message }));
+    Promise.all([listMyDrops(), getProfile(userId)])
+      .then(([drops, profile]) => !cancelled && setLoaded({ userId, drops, error: null, isStaff: profile?.isStaff ?? false }))
+      .catch((error: Error) => !cancelled && setLoaded({ userId, drops: null, error: error.message, isStaff: false }));
     return () => {
       cancelled = true;
     };
@@ -112,6 +116,11 @@ export function YourDrops() {
               Thanks! Your drop is in review. A person checks each new account&apos;s first drop, usually within a day.
               Until then only you can see it.
             </p>
+          )}
+          {mine?.isStaff && (
+            <Link href="/review" className={`${textButton} self-start`}>
+              Open the review queue
+            </Link>
           )}
           {saved && (
             <p role="status" className="rounded-lg bg-accent-wash px-3 py-2.5 text-sm">

@@ -7,7 +7,7 @@ import { myDropFromJson, type DropJson } from "./json";
 import { limits } from "./limits";
 import type { DropInput, MyDrop, Review } from "./types";
 
-export type Profile = { displayName: string | null; adultConfirmed: boolean };
+export type Profile = { displayName: string | null; adultConfirmed: boolean; isStaff: boolean };
 
 type DbError = { message?: string; code?: string } | null;
 
@@ -28,6 +28,8 @@ export function errorText(error: DbError): string {
   if (message.includes("ends_after_start") || message.includes("once_ends_after_start"))
     return "The end has to be after the start.";
   if (message.includes("not_found")) return "That drop isn't one of yours, or it's been deleted.";
+  if (message.includes("not_staff")) return "Only Hololoco staff can do that.";
+  if (message.includes("reason_needed")) return "Say why it isn't approved. The owner sees the reason.";
   if (message.includes("bad_time_zone")) return "That time zone isn't one we know. Pick another.";
   if (error?.code === "23514") return "Something is outside the limits. Check the title, description, size and height.";
   if (error?.code === "PGRST301" || message.includes("JWT")) return "Your sign-in has expired. Sign in again.";
@@ -41,11 +43,15 @@ export async function getProfile(userId: string): Promise<Profile | null> {
   if (!client) return null;
   const { data, error } = await client
     .from("profiles")
-    .select("display_name, adult_confirmed_at")
+    .select("display_name, adult_confirmed_at, is_staff")
     .eq("id", userId)
     .maybeSingle();
   if (error || !data) return null;
-  return { displayName: data.display_name, adultConfirmed: data.adult_confirmed_at !== null };
+  return {
+    displayName: data.display_name,
+    adultConfirmed: data.adult_confirmed_at !== null,
+    isStaff: data.is_staff === true,
+  };
 }
 
 /** Saves the name shown on their drops and records that they confirmed they're 18 or older. */

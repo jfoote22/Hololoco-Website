@@ -71,7 +71,7 @@ export function PublishBox({
         setBusy(false);
         return setError(failed);
       }
-      setProfile({ userId, value: { displayName: shownName.trim(), adultConfirmed: true } });
+      setProfile({ userId, value: { displayName: shownName.trim(), adultConfirmed: true, isStaff: current?.isStaff ?? false } });
     }
     const result = await saveDrop(input);
     setBusy(false);

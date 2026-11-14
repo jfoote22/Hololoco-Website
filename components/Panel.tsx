@@ -84,17 +84,14 @@ export function Panel({ children }: { children: React.ReactNode }) {
       >
         <span className="h-1 w-10 rounded-full bg-line" aria-hidden="true" />
       </button>
-      <header className="flex shrink-0 items-center justify-between px-4 md:pt-3">
+      <header className="flex shrink-0 items-center px-4 md:pt-3">
         <Link href="/" className="flex min-h-11 items-center gap-2 font-display text-xl font-bold tracking-tight">
           <Logo />
           hololoco
         </Link>
-        <Link href="/mine" className="flex min-h-11 items-center px-2 text-sm font-medium text-muted hover:text-ink">
-          Your drops
-        </Link>
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-4 pt-2 pb-4">
-        {/* Reading the address waits on a drop page's id, so this mustn't hold up the rest. */}
+        {/* Reading the address can wait on the route, so this mustn't hold up the rest. */}
         <Suspense fallback={null}>
           <BackToMap />
         </Suspense>

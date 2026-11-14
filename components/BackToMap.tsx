@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "@/components/auth/session";
 
-// Every screen but the map itself gets a way back to it: a link at the top of the
+// Every screen but the start page gets a way back to it: a link at the top of the
 // panel on wider screens, and a button over the map's top-left corner on phones.
 export function BackToMap() {
+  const signedIn = useSession().status === "signed-in";
   if (usePathname() === "/") return null;
   return (
     <Link
@@ -15,7 +17,7 @@ export function BackToMap() {
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M15 5l-7 7 7 7" />
       </svg>
-      <span className="max-md:sr-only">Back to the map</span>
+      <span className="max-md:sr-only">{signedIn ? "Back to your drops" : "Back"}</span>
     </Link>
   );
 }

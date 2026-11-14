@@ -1,4 +1,4 @@
-// Plain-language words for drops, shared by the map, lists, drop pages and link previews.
+// Plain-language words for drops, shared by the map, lists and forms.
 
 import { publicAssetUrl } from "@/lib/assets";
 import { libraryObject } from "@/lib/library/objects";
@@ -15,12 +15,6 @@ export function byline(drop: PublicDrop): string {
   return `${typeLabel[drop.type]} from ${drop.owner.name}`;
 }
 
-/** "Offer from Luigi's Slice, verified business" */
-export function bylineLong(drop: PublicDrop): string {
-  const verified = drop.owner.kind === "business" && drop.owner.verified;
-  return verified ? `${byline(drop)}, verified business` : byline(drop);
-}
-
 export function thumbnailFor(drop: PublicDrop): string | null {
   if (drop.preview?.thumbnail) return drop.preview.thumbnail;
   if (drop.look.kind === "library") return libraryObject(drop.look.objectId)?.thumbnail ?? null;
@@ -31,12 +25,6 @@ export function modelFor(drop: PublicDrop): string | null {
   if (drop.preview?.model) return drop.preview.model;
   if (drop.look.kind === "library") return libraryObject(drop.look.objectId)?.model ?? null;
   return publicAssetUrl(drop.look.model);
-}
-
-/** The full photo of a photo drop, for its page. */
-export function photoFor(drop: PublicDrop): string | null {
-  if (drop.look.kind !== "upload" || drop.look.assetKind !== "photo") return null;
-  return drop.preview?.photo ?? publicAssetUrl(drop.look.photo);
 }
 
 /** "Saves $3, one per person" */

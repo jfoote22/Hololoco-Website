@@ -27,6 +27,6 @@ export async function GET(request: NextRequest) {
   }
 
   // The redirect drops the one-time token from the address.
-  const to = new URL(ok ? next : "/mine?signin=failed", request.nextUrl.origin);
+  const to = new URL(ok ? next : "/?signin=failed", request.nextUrl.origin);
   return NextResponse.redirect(to);
 }

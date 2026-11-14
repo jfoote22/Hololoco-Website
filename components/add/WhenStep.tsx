@@ -104,36 +104,6 @@ export function WhenStep({ draft, update }: Props) {
       )}
 
       {timing.kind !== "always" && <TimeZone value={draft.timeZone} onChange={(timeZone) => update({ timeZone })} />}
-
-      <fieldset className="flex flex-col gap-2">
-        <legend className="mb-2 text-sm font-semibold">Who can see it?</legend>
-        <label className={choiceCard}>
-          <input
-            type="radio"
-            name="audience"
-            checked={draft.audience === "everyone"}
-            onChange={() => update({ audience: "everyone" })}
-            className="mt-1 accent-accent"
-          />
-          <span className="text-sm">
-            <b className="block">Everyone</b>
-            <span className="text-muted">On the public map.</span>
-          </span>
-        </label>
-        <label className={choiceCard}>
-          <input
-            type="radio"
-            name="audience"
-            checked={draft.audience === "link"}
-            onChange={() => update({ audience: "link" })}
-            className="mt-1 accent-accent"
-          />
-          <span className="text-sm">
-            <b className="block">Only people with the link</b>
-            <span className="text-muted">Hidden from the map. The same content rules apply.</span>
-          </span>
-        </label>
-      </fieldset>
     </div>
   );
 }

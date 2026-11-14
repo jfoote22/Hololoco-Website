@@ -158,12 +158,12 @@ export function PublishBox({
 
       {draft.upload && !draft.upload.assetId ? (
         <p className="text-xs text-muted">
-          A person checks every photo and model before it goes on the public map, usually within a day.
+          A person checks every photo and model before people can see it in the app, usually within a day.
         </p>
       ) : (
         !draft.editing && (
           <p className="text-xs text-muted">
-            A person checks each new account&apos;s first drop before it goes on the public map.
+            A person checks each new account&apos;s first drop before people can see it in the app.
           </p>
         )
       )}

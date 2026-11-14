@@ -3,9 +3,10 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
-  // Drop link previews read the object thumbnails from disk at request time.
-  outputFileTracingIncludes: {
-    "/d/**": ["./public/library/*.png"],
+  // Your drops used to have their own address; the start page is that list now.
+  // Redirects keep the query, so old sign-in and "added" links still land right.
+  async redirects() {
+    return [{ source: "/mine", destination: "/", permanent: false }];
   },
   turbopack: {
     rules: {

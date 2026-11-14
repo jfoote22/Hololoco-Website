@@ -5,7 +5,6 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { dropChanged } from "@/app/actions";
 import { SignIn } from "@/components/auth/SignIn";
 import { useSession } from "@/components/auth/session";
 import { useMap } from "@/components/map/MapProvider";
@@ -150,17 +149,14 @@ function AddFlow({ editId }: { editId: string | null }) {
     if (editId) router.push("/add");
   }
 
-  function onPublished({ id, review }: Published) {
+  function onPublished({ id }: Published) {
     const editing = draft.editing;
     if (draft.upload?.localId) void forgetUpload(draft.upload.localId);
     clearDraft();
     // This screen stays alive in the background, so reset it for next time.
     setDraft(newDraft());
-    void dropChanged(id);
     reload();
-    if (editing) router.push(`/mine?saved=${id}`);
-    else if (review === "approved") router.push(`/d/${id}`);
-    else router.push(`/mine?added=${id}`);
+    router.push(editing ? `/?saved=${id}` : `/?added=${id}`);
   }
 
   if (editId && !editReady) {
@@ -350,7 +346,7 @@ function WhereStep({
     <div className="flex flex-col gap-4">
       <p className="text-sm">Tap the map where it goes, or drag its pin. You can also search for the place first.</p>
 
-      <SearchBox placesOnly onPlace={(place) => update({ placement: { ...PLACEMENT_DEFAULTS, ...placement, ...place.center } })} />
+      <SearchBox onPlace={(place) => update({ placement: { ...PLACEMENT_DEFAULTS, ...placement, ...place.center } })} />
 
       <button
         type="button"

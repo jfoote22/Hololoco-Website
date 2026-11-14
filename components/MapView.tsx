@@ -12,8 +12,8 @@ const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
 export function MapView() {
   const container = useRef<HTMLDivElement>(null);
-  const { engine, status, insets, drops, placing } = useMap();
-  const showsSamples = drops.some((d) => d.sample);
+  const { engine, status, insets, others, placing } = useMap();
+  const showsSamples = others.some((d) => d.sample);
   const { setEngine, focusedRef } = useMapInternals();
   const [locating, setLocating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -83,7 +83,7 @@ export function MapView() {
       )}
       {status === "unavailable" && (
         <p className="absolute top-4 right-4 max-w-[min(340px,calc(100%-32px))] rounded-lg bg-surface px-3 py-2 text-[13px] text-muted shadow-sm max-md:top-auto max-md:bottom-[calc(var(--map-inset-bottom)+12px)] max-md:left-3">
-          The 3D map couldn&apos;t load here. Everything on it is still listed in the panel.
+          The 3D map couldn&apos;t load here. You can still manage your drops in the panel.
         </p>
       )}
 

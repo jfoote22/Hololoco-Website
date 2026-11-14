@@ -162,6 +162,7 @@ class MapboxEngine implements MapEngine {
       if (existing) {
         existing.marker.setLngLat([pin.placement.lng, pin.placement.lat]);
         existing.pin = pin;
+        setFaint(existing.el, pin.faint === true);
         continue;
       }
       const el = this.pinElement(pin);
@@ -320,6 +321,7 @@ class MapboxEngine implements MapEngine {
     foot.className = "hl-pin-foot";
 
     el.append(label, head, stem, foot);
+    setFaint(el, pin.faint === true);
     el.addEventListener("click", (event) => {
       event.stopPropagation();
       for (const handler of this.pinHandlers) handler(pin.id);
@@ -361,7 +363,8 @@ class MapboxEngine implements MapEngine {
         [bounds.west, bounds.south],
         [bounds.east, bounds.north],
       ],
-      { maxZoom: options.maxZoom ?? 16, duration: 1400 },
+      // Mapbox flattens the view when fitting unless told otherwise; keep the 3D tilt.
+      { maxZoom: options.maxZoom ?? 16, duration: 1400, pitch: this.map.getPitch(), bearing: this.map.getBearing() },
     );
   }
 
@@ -424,4 +427,12 @@ class MapboxEngine implements MapEngine {
       this.me.setLngLat([at.lng, at.lat]);
     }
   }
+}
+
+/** Someone else's pin: dimmed, and out of reach of clicks, keys and screen readers. */
+function setFaint(el: HTMLButtonElement, faint: boolean) {
+  el.classList.toggle("is-faint", faint);
+  el.disabled = faint;
+  if (faint) el.setAttribute("aria-hidden", "true");
+  else el.removeAttribute("aria-hidden");
 }

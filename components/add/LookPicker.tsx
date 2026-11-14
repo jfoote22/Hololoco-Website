@@ -193,7 +193,7 @@ export function LookPicker({
         </div>
       )}
 
-      <p className="text-xs text-muted">A person checks every photo and model before it goes on the public map.</p>
+      <p className="text-xs text-muted">A person checks every photo and model before people can see it in the app.</p>
     </fieldset>
   );
 }

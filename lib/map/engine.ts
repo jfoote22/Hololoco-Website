@@ -22,6 +22,8 @@ export type MapPin = {
   thumbnail?: string;
   /** GLB shown at its real place, height, size and turn when zoomed in close. */
   modelUrl?: string;
+  /** Someone else's drop, shown only for context: dimmed and not clickable. */
+  faint?: boolean;
 };
 
 export interface MapEngine {

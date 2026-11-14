@@ -1,17 +1,19 @@
 "use client";
 
-// Your drops: everything the person has added, with its status in words, and
-// edit, pause and delete. Signing in starts here too.
+// The start page. Signed out, it says what the website is for and offers sign-in.
+// Signed in, it's Your drops: everything the person has added, with its status in
+// words, and add, edit, pause and delete.
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { dropChanged } from "@/app/actions";
-import { SignIn } from "@/components/auth/SignIn";
 import { signOut, useSession } from "@/components/auth/session";
 import { DropThumb } from "@/components/DropThumb";
 import { useMap } from "@/components/map/MapProvider";
+import { SheetHeight } from "@/components/map/SheetHeight";
+import { SearchBox } from "@/components/SearchBox";
 import { primaryButton, textButton } from "@/components/ui";
+import { Welcome } from "./Welcome";
 import { timingText, typeLabel } from "@/lib/drops/format";
 import { attachPreviews } from "@/lib/assets";
 import { deleteDrop, getProfile, listMyDrops, setPaused } from "@/lib/drops/mine";
@@ -74,7 +76,6 @@ export function YourDrops() {
     setBusy(null);
     if (failed) return setActionError(failed);
     replace(drop.id, (d) => ({ ...d, paused: !d.paused, status: d.paused ? "live" : "paused" }));
-    void dropChanged(drop.id);
     reload();
   }
 
@@ -86,7 +87,6 @@ export function YourDrops() {
     setConfirming(null);
     if (failed) return setActionError(failed);
     replace(drop.id, () => null);
-    void dropChanged(drop.id);
     reload();
   }
 
@@ -95,136 +95,138 @@ export function YourDrops() {
     setSheet("peek");
   }
 
+  const signInFailed = params.get("signin") === "failed" && (
+    <p role="alert" className="rounded-lg bg-wash px-3 py-2.5 text-sm">
+      That sign-in link didn&apos;t work. It may have expired or been used already, so ask for a new one.
+    </p>
+  );
+
+  if (session.status === "loading") return <p className="text-sm text-muted">Loading…</p>;
+  if (session.status !== "signed-in") {
+    return (
+      <>
+        {signInFailed}
+        <Welcome />
+      </>
+    );
+  }
+
+  const justAdded = added ? mine?.drops?.find((d) => d.id === added) : undefined;
+
   return (
     <>
+      <SheetHeight size="half" />
       <div className="flex flex-col gap-1">
         <h1 className="text-[22px] font-bold">Your drops</h1>
-        <p className="text-sm text-muted">Everything you&apos;ve added, and whether it&apos;s on the map.</p>
+        <p className="text-sm text-muted">Everything you&apos;ve added. Once it&apos;s live, people can find it in the Hololoco app.</p>
       </div>
 
-      {params.get("signin") === "failed" && (
-        <p role="alert" className="rounded-lg bg-wash px-3 py-2.5 text-sm">
-          That sign-in link didn&apos;t work. It may have expired or been used already, so ask for a new one.
+      {signInFailed}
+
+      {justAdded && (
+        <p role="status" className="rounded-lg bg-accent-wash px-3 py-2.5 text-sm">
+          {justAdded.review !== "pending"
+            ? "Thanks! Your drop is live."
+            : justAdded.look.kind === "upload"
+              ? "Thanks! Your drop is in review. A person checks every photo and model, usually within a day. Until then only you can see it."
+              : "Thanks! Your drop is in review. A person checks each new account's first drop, usually within a day. Until then only you can see it."}
+        </p>
+      )}
+      {mine?.isStaff && (
+        <Link href="/review" className={`${textButton} self-start`}>
+          Open the review queue
+        </Link>
+      )}
+      {saved && (
+        <p role="status" className="rounded-lg bg-accent-wash px-3 py-2.5 text-sm">
+          Changes saved.
+        </p>
+      )}
+      {actionError && (
+        <p role="alert" className="text-sm text-rejected">
+          {actionError}
         </p>
       )}
 
-      {session.status === "loading" && <p className="text-sm text-muted">Loading…</p>}
+      <Link href="/add" className={primaryButton}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+        Add to the map
+      </Link>
+      <SearchBox />
 
-      {session.status === "signed-out" && <SignIn next="/mine" lead="Sign in to see and change what you've added." />}
+      {!mine && <p className="text-sm text-muted">Loading your drops…</p>}
+      {mine?.error && <p className="text-sm text-rejected">{mine.error}</p>}
+      {mine?.drops?.length === 0 && <p className="text-sm text-muted">You haven&apos;t added anything yet.</p>}
 
-      {userId && (
-        <>
-          {added && mine?.drops?.some((d) => d.id === added && d.review === "pending") && (
-            <p role="status" className="rounded-lg bg-accent-wash px-3 py-2.5 text-sm">
-              {mine.drops.find((d) => d.id === added)?.look.kind === "upload"
-                ? "Thanks! Your drop is in review. A person checks every photo and model, usually within a day."
-                : "Thanks! Your drop is in review. A person checks each new account's first drop, usually within a day."}{" "}
-              Until then only you can see it.
-            </p>
-          )}
-          {mine?.isStaff && (
-            <Link href="/review" className={`${textButton} self-start`}>
-              Open the review queue
-            </Link>
-          )}
-          {saved && (
-            <p role="status" className="rounded-lg bg-accent-wash px-3 py-2.5 text-sm">
-              Changes saved.
-            </p>
-          )}
-          {actionError && (
-            <p role="alert" className="text-sm text-rejected">
-              {actionError}
-            </p>
-          )}
+      {mine?.drops && mine.drops.length > 0 && (
+        <ul className="flex flex-col divide-y divide-line">
+          {mine.drops.map((drop) => {
+            const status = statusOf(drop);
+            return (
+              <li key={drop.id} className="flex flex-col gap-2 py-3">
+                <div className="flex items-start gap-3">
+                  <DropThumb drop={drop} />
+                  <div className="flex min-w-0 flex-col">
+                    <span className="truncate font-semibold">{drop.title}</span>
+                    <span className="text-[13px] text-muted">
+                      {typeLabel[drop.type]} · <b className={`font-semibold ${status.tone}`}>{status.word}</b>
+                    </span>
+                    {status.line && <span className="text-[13px] text-muted">{status.line}</span>}
+                  </div>
+                </div>
 
-          {!mine && <p className="text-sm text-muted">Loading your drops…</p>}
-          {mine?.error && <p className="text-sm text-rejected">{mine.error}</p>}
-          {mine?.drops?.length === 0 && (
-            <div className="flex flex-col gap-3">
-              <p className="text-sm text-muted">You haven&apos;t added anything yet.</p>
-              <Link href="/add" className={primaryButton}>
-                Add to the map
-              </Link>
-            </div>
-          )}
-
-          {mine?.drops && mine.drops.length > 0 && (
-            <ul className="flex flex-col divide-y divide-line">
-              {mine.drops.map((drop) => {
-                const status = statusOf(drop);
-                const isPublic = drop.review === "approved" && !drop.paused;
-                return (
-                  <li key={drop.id} className="flex flex-col gap-2 py-3">
-                    <div className="flex items-start gap-3">
-                      <DropThumb drop={drop} />
-                      <div className="flex min-w-0 flex-col">
-                        <span className="truncate font-semibold">{drop.title}</span>
-                        <span className="text-[13px] text-muted">
-                          {typeLabel[drop.type]} · <b className={`font-semibold ${status.tone}`}>{status.word}</b>
-                        </span>
-                        {status.line && <span className="text-[13px] text-muted">{status.line}</span>}
-                      </div>
-                    </div>
-
-                    {confirming === drop.id ? (
-                      <div className="flex flex-wrap items-center gap-x-3 rounded-lg bg-wash px-3 py-1">
-                        <span className="text-sm">Delete this drop? This can&apos;t be undone.</span>
-                        <button
-                          type="button"
-                          disabled={busy === drop.id}
-                          onClick={() => remove(drop)}
-                          className={`${textButton} text-rejected`}
-                        >
-                          Delete
-                        </button>
-                        <button type="button" onClick={() => setConfirming(null)} className={textButton}>
-                          Keep it
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap gap-x-3">
-                        {isPublic ? (
-                          <Link href={`/d/${drop.id}`} className={textButton}>
-                            Open
-                          </Link>
-                        ) : (
-                          <button type="button" onClick={() => showOnMap(drop)} className={textButton}>
-                            Show on the map
-                          </button>
-                        )}
-                        <Link href={`/add?edit=${drop.id}`} className={textButton}>
-                          Edit
-                        </Link>
-                        {drop.review !== "rejected" && (
-                          <button
-                            type="button"
-                            disabled={busy === drop.id}
-                            onClick={() => togglePause(drop)}
-                            className={textButton}
-                          >
-                            {drop.paused ? "Resume" : "Pause"}
-                          </button>
-                        )}
-                        <button type="button" onClick={() => setConfirming(drop.id)} className={`${textButton} text-muted`}>
-                          Delete
-                        </button>
-                      </div>
+                {confirming === drop.id ? (
+                  <div className="flex flex-wrap items-center gap-x-3 rounded-lg bg-wash px-3 py-1">
+                    <span className="text-sm">Delete this drop? This can&apos;t be undone.</span>
+                    <button
+                      type="button"
+                      disabled={busy === drop.id}
+                      onClick={() => remove(drop)}
+                      className={`${textButton} text-rejected`}
+                    >
+                      Delete
+                    </button>
+                    <button type="button" onClick={() => setConfirming(null)} className={textButton}>
+                      Keep it
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-x-3">
+                    <button type="button" onClick={() => showOnMap(drop)} className={textButton}>
+                      Show on the map
+                    </button>
+                    <Link href={`/add?edit=${drop.id}`} className={textButton}>
+                      Edit
+                    </Link>
+                    {drop.review !== "rejected" && (
+                      <button
+                        type="button"
+                        disabled={busy === drop.id}
+                        onClick={() => togglePause(drop)}
+                        className={textButton}
+                      >
+                        {drop.paused ? "Resume" : "Pause"}
+                      </button>
                     )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-
-          <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3 text-sm text-muted">
-            <span className="min-w-0 truncate">Signed in as {session.status === "signed-in" ? session.user.email : ""}</span>
-            <button type="button" onClick={() => void signOut()} className={textButton}>
-              Sign out
-            </button>
-          </div>
-        </>
+                    <button type="button" onClick={() => setConfirming(drop.id)} className={`${textButton} text-muted`}>
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
       )}
+
+      <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3 text-sm text-muted">
+        <span className="min-w-0 truncate">Signed in as {session.user.email}</span>
+        <button type="button" onClick={() => void signOut()} className={textButton}>
+          Sign out
+        </button>
+      </div>
     </>
   );
 }

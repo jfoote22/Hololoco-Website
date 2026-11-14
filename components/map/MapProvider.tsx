@@ -1,10 +1,15 @@
 "use client";
 
-// Shared state between the map and the panel: which drops are in view, the type
-// filter, the drop being looked at, and how tall the phone sheet is. The map stays
-// mounted across every route, so this lives in the root layout.
+// Shared state between the map and the panel: the signed-in person's own drops,
+// other people's public drops around them, the drop being looked at, and how tall
+// the phone sheet is. The map stays mounted across every route, so this lives in
+// the root layout.
+//
+// The website is where businesses place and manage content; people find it in the
+// Hololoco app. So the map shows your own drops in every state, and other people's
+// only faintly, as context for where yours go.
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   createContext,
   useCallback,
@@ -15,12 +20,14 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { useSession } from "@/components/auth/session";
+import { attachPreviews } from "@/lib/assets";
 import { modelFor, thumbnailFor } from "@/lib/drops/format";
-import { listDropsInBounds, listPublicDrops } from "@/lib/drops/source";
-import type { DropType, PublicDrop } from "@/lib/drops/types";
+import { listMyDrops } from "@/lib/drops/mine";
+import { listDropsInBounds } from "@/lib/drops/source";
+import type { MyDrop, PublicDrop } from "@/lib/drops/types";
 import type { Insets, MapEngine, MapPin } from "@/lib/map/engine";
 
-export type TypeFilterValue = "all" | DropType;
 export type MapStatus = "loading" | "ready" | "unavailable";
 export type SheetSize = "peek" | "half" | "full";
 
@@ -53,13 +60,11 @@ function insetsFor(viewport: string, sheet: SheetSize): Insets {
 type MapContextValue = {
   engine: MapEngine | null;
   status: MapStatus;
-  /** Public drops in the visible area, before the type filter. */
-  drops: PublicDrop[];
-  /** Drops in view that pass the type filter. */
-  shownDrops: PublicDrop[];
-  filter: TypeFilterValue;
-  setFilter: (filter: TypeFilterValue) => void;
-  /** The drop whose page is open, if any. */
+  /** The signed-in person's own drops, in every state. Empty when signed out. */
+  mine: MyDrop[];
+  /** Other people's public drops in the visible area, shown faintly. Empty when signed out. */
+  others: PublicDrop[];
+  /** The drop being looked at, if any. */
   focused: PublicDrop | null;
   focus: (drop: PublicDrop | null) => void;
   sheet: SheetSize;
@@ -69,13 +74,13 @@ type MapContextValue = {
   setDraft: (draft: MapPin | null) => void;
   /** True while the add flow has a drop on the map. */
   placing: boolean;
-  /** Load the drops in view again, e.g. after publishing one. */
+  /** Load the drops again, e.g. after publishing, pausing or deleting one. */
   reload: () => void;
 };
 
 type MapInternals = {
   setEngine: (engine: MapEngine | null, status: MapStatus) => void;
-  /** The drop to open the map on, when a drop page loads before the map. */
+  /** The drop to open the map on, when a screen focuses one before the map loads. */
   focusedRef: React.RefObject<PublicDrop | null>;
 };
 
@@ -105,12 +110,17 @@ function toPin(drop: PublicDrop): MapPin {
   };
 }
 
+const NONE: never[] = [];
+
 export function MapProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const session = useSession();
+  const userId = session.status === "signed-in" ? session.user.id : null;
   const [engine, setEngineState] = useState<MapEngine | null>(null);
   const [status, setStatus] = useState<MapStatus>("loading");
-  const [drops, setDrops] = useState<PublicDrop[]>([]);
-  const [filter, setFilter] = useState<TypeFilterValue>("all");
+  const [loadedMine, setLoadedMine] = useState<{ userId: string; drops: MyDrop[] } | null>(null);
+  const [loadedOthers, setLoadedOthers] = useState<PublicDrop[]>([]);
   const [focused, setFocused] = useState<PublicDrop | null>(null);
   const [sheet, setSheet] = useState<SheetSize>("peek");
   const [draft, setDraft] = useState<MapPin | null>(null);
@@ -118,6 +128,11 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
   const reload = useCallback(() => setReloads((n) => n + 1), []);
   const focusedRef = useRef<PublicDrop | null>(null);
   const positioned = useRef(false);
+  const fittedFor = useRef<string | null>(null);
+
+  // Signing out empties both at once; nothing of the last person's lingers.
+  const mine = userId && loadedMine?.userId === userId ? loadedMine.drops : NONE;
+  const others = userId ? loadedOthers : NONE;
 
   const setEngine = useCallback((next: MapEngine | null, nextStatus: MapStatus) => {
     setEngineState(next);
@@ -129,39 +144,49 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
     setFocused(drop);
   }, []);
 
-  // Load the drops in view whenever the map stops moving. Without a map, list them all.
+  // The person's own drops, with signed links to uploads that aren't public yet.
   useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    listMyDrops()
+      .then(attachPreviews)
+      .then((drops) => !cancelled && setLoadedMine({ userId, drops }))
+      .catch((error: unknown) => console.warn("Couldn't load your drops for the map:", error));
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, reloads]);
+
+  // Everyone else's, in the visible area, whenever the map stops moving.
+  useEffect(() => {
+    if (!engine || !userId) return;
     let latest = 0;
     let cancelled = false;
     const load = (request: Promise<PublicDrop[]>) => {
       const ticket = ++latest;
       request.then((result) => {
-        if (!cancelled && ticket === latest) setDrops(result);
+        if (!cancelled && ticket === latest) setLoadedOthers(result);
       });
     };
-    if (status === "unavailable") load(listPublicDrops());
-    if (!engine) return () => void (cancelled = true);
     load(listDropsInBounds(engine.getBounds()));
     const off = engine.onMove((bounds) => load(listDropsInBounds(bounds)));
     return () => {
       cancelled = true;
       off();
     };
-  }, [engine, status, reloads]);
+  }, [engine, userId, reloads]);
 
-  const shownDrops = useMemo(
-    () => (filter === "all" ? drops : drops.filter((d) => d.type === filter)),
-    [drops, filter],
-  );
-
-  // Pins: what's shown, plus the open drop even if it's filtered out or link-only.
-  // A drop being edited shows only as the draft.
+  // Pins: other people's faintly and without their models, then your own, then the
+  // drop being looked at. A drop being edited shows only as the draft.
   useEffect(() => {
     if (!engine) return;
-    const pins = shownDrops.map(toPin);
-    if (focused && !shownDrops.some((d) => d.id === focused.id)) pins.push(toPin(focused));
-    engine.setPins(draft ? pins.filter((p) => p.id !== draft.id) : pins);
-  }, [engine, shownDrops, focused, draft]);
+    const pins = new Map<string, MapPin>();
+    for (const drop of others) pins.set(drop.id, { ...toPin(drop), modelUrl: undefined, faint: true });
+    for (const drop of mine) pins.set(drop.id, toPin(drop));
+    if (focused) pins.set(focused.id, toPin(focused));
+    if (draft) pins.delete(draft.id);
+    engine.setPins([...pins.values()]);
+  }, [engine, others, mine, focused, draft]);
 
   useEffect(() => {
     engine?.setDraft(draft);
@@ -181,14 +206,31 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine, focused?.id]);
 
+  // On the start page, open on the person's own drops the first time they load.
+  useEffect(() => {
+    if (!engine || !userId || pathname !== "/" || focusedRef.current) return;
+    if (fittedFor.current === userId || loadedMine?.userId !== userId || loadedMine.drops.length === 0) return;
+    fittedFor.current = userId;
+    const lats = loadedMine.drops.map((d) => d.placement.lat);
+    const lngs = loadedMine.drops.map((d) => d.placement.lng);
+    engine.fitBounds(
+      { west: Math.min(...lngs), south: Math.min(...lats), east: Math.max(...lngs), north: Math.max(...lats) },
+      { maxZoom: 16.4 },
+    );
+  }, [engine, userId, pathname, loadedMine]);
+
   useEffect(() => {
     if (engine) positioned.current = true;
   }, [engine]);
 
+  // Only your own pins can be clicked (the others are faint); one opens it for editing.
   useEffect(() => {
     if (!engine) return;
-    return engine.onPinSelect((id) => router.push(`/d/${id}`));
-  }, [engine, router]);
+    const ids = new Set(mine.map((d) => d.id));
+    return engine.onPinSelect((id) => {
+      if (ids.has(id)) router.push(`/add?edit=${id}`);
+    });
+  }, [engine, router, mine]);
 
   // Keep the map's centre in the part of the screen the panel doesn't cover.
   const viewport = useSyncExternalStore(subscribeToResize, viewportSnapshot, () => "");
@@ -202,10 +244,8 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
     () => ({
       engine,
       status,
-      drops,
-      shownDrops,
-      filter,
-      setFilter,
+      mine,
+      others,
       focused,
       focus,
       sheet,
@@ -215,7 +255,7 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       placing: draft !== null,
       reload,
     }),
-    [engine, status, drops, shownDrops, filter, focused, focus, sheet, insets, draft, reload],
+    [engine, status, mine, others, focused, focus, sheet, insets, draft, reload],
   );
   const internals = useMemo<MapInternals>(() => ({ setEngine, focusedRef }), [setEngine]);
 

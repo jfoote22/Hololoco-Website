@@ -1,6 +1,6 @@
 "use client";
 
-// Report a drop (from its page's Report link), or ask for a drop to be removed
+// Report a drop (from a link with ?drop=<id>), or ask for a drop to be removed
 // from a property. No account needed; a person reads every report.
 
 import Link from "next/link";

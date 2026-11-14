@@ -5,7 +5,6 @@
 // Every decision is logged and can be undone.
 
 import { useEffect, useRef, useState } from "react";
-import { dropChanged } from "@/app/actions";
 import { SignIn } from "@/components/auth/SignIn";
 import { useSession } from "@/components/auth/session";
 import { DropThumb } from "@/components/DropThumb";
@@ -141,7 +140,6 @@ export function ReviewQueue() {
             : `"${item.title}" wasn't approved. Its owner can see why.`
           : `"${item.title}" is back in the queue.`;
     setNotice({ userId, text, undo: decision === "reopen" ? undefined : item });
-    void dropChanged(item.id);
     reload();
     setVersion((v) => v + 1);
     return true;

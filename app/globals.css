@@ -133,6 +133,26 @@ h3 {
 .hl-pin.is-selected .hl-pin-label {
   display: block;
 }
+/* Someone else's drop: context while you place yours, so smaller and dimmed.
+   The dimming is on the parts, because Mapbox sets the marker's own opacity. */
+.hl-pin.is-faint {
+  cursor: default;
+}
+.hl-pin.is-faint .hl-pin-head {
+  width: 34px;
+  height: 34px;
+  box-shadow: none;
+  transform: none;
+}
+.hl-pin.is-faint .hl-pin-head img {
+  width: 24px;
+  height: 24px;
+}
+.hl-pin.is-faint .hl-pin-head,
+.hl-pin.is-faint .hl-pin-stem,
+.hl-pin.is-faint .hl-pin-foot {
+  opacity: 0.55;
+}
 
 /* The add flow's drop while it's being placed: a handle on the ground under its model. */
 .hl-draft {

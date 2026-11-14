@@ -69,7 +69,7 @@ Then list any new object in `lib/library/objects.ts`, and add it to the `library
 | Hosting | Vercel |
 | Data and sign-in | Supabase: Postgres with PostGIS, Auth, Storage |
 | Map | Mapbox GL JS, Standard style (faded theme), behind `lib/map/engine.ts` |
-| 3D models | GLB only, drawn by Mapbox's own model layer; three.js only builds the library |
+| 3D models | GLB only, drawn by Mapbox's own model layer; three.js builds the library, processes uploads and makes USDZ for AR |
 | Place search | Mapbox Geocoding API v6 (addresses and places, not businesses) |
 
 ## How the map works
@@ -78,6 +78,7 @@ Then list any new object in `lib/library/objects.ts`, and add it to the `library
 - Models are drawn larger than life so they can be seen from a block away: twice their size plus 12 m (a 6 m object shows as 24 m). The drop keeps its true size for AR later.
 - The panel lists every drop in view, which is also how screen reader users reach each pin.
 - Drops come from `lib/drops/source.ts`. In Phase 1 that reads the sample set in `lib/drops/sample.ts`; in Phase 2 the same functions query Supabase, and the database decides what the public sees. To move the samples, change `SAMPLE_CENTRE`.
+- "View in AR" on a drop's page shows it at its true size through the phone's camera, in the phone's own viewer, with no app. Android opens Google's Scene Viewer with `/d/<id>/model.glb`: the drop's model scaled to its size (`app/d/[id]/model.glb/route.ts` rewrites only the file's small JSON part and streams the rest through). iPhones and iPads get a USDZ made from that same file in the browser, for AR Quick Look. Other devices don't show the button.
 - A person's location is only used in the browser, when they press "Show my location". Place search sends Mapbox the typed words and the centre of the map being viewed.
 
 ## How adding works
@@ -100,7 +101,7 @@ Then list any new object in `lib/library/objects.ts`, and add it to the `library
 ## Layout
 
 ```
-app/                 screens: map (/), d/[id] (+ link preview image), add, mine, business, report, review, legal
+app/                 screens: map (/), d/[id] (+ link preview image, AR model), add, mine, business, report, review, legal
 app/auth/confirm/    where sign-in links and Google sign-in land
 components/          panel (bottom sheet on phones), map view, search, filter, list, share
 components/add/      the add flow and its draft
@@ -113,6 +114,7 @@ lib/map/             MapEngine interface, the Mapbox adapter, place search
 lib/drops/           drop types, limits, wording, sample drops, public reads, your own drops
 lib/library/         the ready-made object list
 lib/upload/          turning photos and GLB/FBX models into small GLBs in the browser, and uploading them
+lib/ar/              scaling a GLB to a drop's true size for AR
 lib/assets.ts        where uploaded files live, and signed links to private ones
 lib/reports.ts       filing a report
 lib/review.ts        staff calls for the review queue and reports

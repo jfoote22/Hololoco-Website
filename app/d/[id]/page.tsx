@@ -7,6 +7,7 @@ import { DropThumb } from "@/components/DropThumb";
 import { FocusDrop } from "@/components/map/FocusDrop";
 import { SheetHeight } from "@/components/map/SheetHeight";
 import { ShareButton } from "@/components/ShareButton";
+import { ViewInAr } from "@/components/ViewInAr";
 import { bylineLong, photoFor, remainingText, savingsText, timingText } from "@/lib/drops/format";
 import { getDrop, prerenderedDropIds } from "@/lib/drops/page";
 
@@ -109,6 +110,7 @@ async function DropDetails({ params }: { params: PageProps<"/d/[id]">["params"] 
       </article>
 
       <div className="sticky -bottom-4 -mx-4 -mb-4 mt-auto flex flex-col gap-2 border-t border-line bg-surface px-4 pt-3 pb-4 max-md:pb-2">
+        <ViewInAr id={drop.id} title={drop.title} />
         {drop.offer && (
           <p className="rounded-lg bg-wash px-3 py-2 text-[13px] text-muted">
             Claiming a code comes in Phase 4, with sign-in.

@@ -5,7 +5,8 @@
 // Pages set the height they open at with <SheetHeight />.
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { Suspense, useRef, useState } from "react";
+import { BackToMap } from "@/components/BackToMap";
 import { sheetPixels, useMap, type SheetSize } from "@/components/map/MapProvider";
 
 const ORDER: SheetSize[] = ["peek", "half", "full"];
@@ -93,6 +94,10 @@ export function Panel({ children }: { children: React.ReactNode }) {
         </Link>
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-4 pt-2 pb-4">
+        {/* Reading the address waits on a drop page's id, so this mustn't hold up the rest. */}
+        <Suspense fallback={null}>
+          <BackToMap />
+        </Suspense>
         {children}
       </div>
     </aside>

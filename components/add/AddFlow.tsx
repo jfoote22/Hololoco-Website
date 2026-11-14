@@ -4,7 +4,7 @@
 // appears on the map as soon as it has a place, and sign-in waits until Publish.
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { dropChanged } from "@/app/actions";
 import { SignIn } from "@/components/auth/SignIn";
 import { useSession } from "@/components/auth/session";
@@ -34,9 +34,15 @@ import { WhenStep } from "./WhenStep";
 
 const STEP_NAMES: Record<Step, string> = { 1: "What", 2: "Where", 3: "When and who" };
 
+const subscribeToNothing = () => () => {};
+
 /** Reads ?edit=<id>; a different drop gets a fresh flow. */
 export function AddFlowRoute() {
   const editId = useSearchParams().get("edit");
+  // The draft is in this browser's storage, which the server can't see. Drawing the
+  // flow only once the page runs here keeps the two from disagreeing about the step.
+  const inBrowser = useSyncExternalStore(subscribeToNothing, () => true, () => false);
+  if (!inBrowser) return <p className="text-sm text-muted">Loading…</p>;
   return <AddFlow key={editId ?? "new"} editId={editId} />;
 }
 

@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 // Placeholder for a screen from the design doc that later phases build.
 export function ComingSoon({
   title,
@@ -20,9 +18,6 @@ export function ComingSoon({
       </div>
       {children}
       <p className="rounded-lg bg-wash px-3 py-2 text-[13px] text-muted">Coming in {phase}.</p>
-      <Link href="/" className="flex min-h-11 items-center text-sm font-medium text-accent hover:underline">
-        Back to the map
-      </Link>
     </>
   );
 }

@@ -3,9 +3,9 @@
 // on the ground, simplified to the triangle budget, with a thumbnail.
 // Runs in the browser; load it with a dynamic import, it's large.
 
-import { VertexLayout, WebIO, type Document } from "@gltf-transform/core";
+import { Primitive, VertexLayout, WebIO, type Document, type Transform } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
-import { dedup, prune, simplify, weld } from "@gltf-transform/functions";
+import { compactPrimitive, dedup, prune, simplify, weld } from "@gltf-transform/functions";
 import { MeshoptSimplifier } from "meshoptimizer";
 import * as THREE from "three";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
@@ -39,6 +39,10 @@ export async function processModel(files: File[], progress: Progress): Promise<P
   const holder = normalize(root);
   const originalTriangles = countTriangles(holder);
   if (originalTriangles === 0) throw new UploadError("That file has no shapes in it to show.");
+  if (originalTriangles > uploadLimits.modelSourceTriangles)
+    throw new UploadError(
+      `That model has ${fmt(originalTriangles)} triangles. Models can have up to ${fmt(uploadLimits.modelSourceTriangles)}; most 3D tools can reduce it when exporting.`,
+    );
 
   const exported = new Uint8Array(
     (await new GLTFExporter().parseAsync(holder, {
@@ -238,6 +242,79 @@ function countTriangles(root: THREE.Object3D): number {
   return total;
 }
 
+/**
+ * Simplifies across texture seams, which the gentle passes can't, while counting
+ * texture coordinates and normals in the error so it avoids collapses that would
+ * smear the texture. Also drops tiny loose bits.
+ */
+function simplifyAcrossSeams(ratio: number): Transform {
+  return (doc) => {
+    for (const mesh of doc.getRoot().listMeshes())
+      for (const prim of mesh.listPrimitives()) {
+        const position = prim.getAttribute("POSITION");
+        const oldIndices = prim.getIndices();
+        if (prim.getMode() !== Primitive.Mode.TRIANGLES || !position || !oldIndices) continue;
+        const count = position.getCount();
+        const uv = prim.getAttribute("TEXCOORD_0")?.getArray();
+        const normal = prim.getAttribute("NORMAL")?.getArray();
+        const stride = (uv ? 2 : 0) + (normal ? 3 : 0);
+        const weights = [...(uv ? [1, 1] : []), ...(normal ? [0.25, 0.25, 0.25] : [])];
+        const attributes = new Float32Array(Math.max(1, count * stride));
+        for (let v = 0; v < count; v++) {
+          let o = v * stride;
+          if (uv) for (let k = 0; k < 2; k++) attributes[o++] = uv[v * 2 + k];
+          if (normal) for (let k = 0; k < 3; k++) attributes[o++] = normal[v * 3 + k];
+        }
+        const indices = new Uint32Array(oldIndices.getArray()!);
+        const target = Math.floor((ratio * indices.length) / 3) * 3;
+        const [kept] = MeshoptSimplifier.simplifyWithAttributes(
+          indices,
+          new Float32Array(position.getArray()!),
+          3,
+          attributes,
+          Math.max(1, stride),
+          weights,
+          null,
+          target,
+          1,
+          ["Permissive", "Prune"],
+        );
+        prim.setIndices(doc.createAccessor().setType("SCALAR").setBuffer(oldIndices.getBuffer()).setArray(kept as Uint32Array<ArrayBuffer>));
+        if (oldIndices.listParents().length === 1) oldIndices.dispose();
+        compactPrimitive(prim);
+      }
+  };
+}
+
+/** Ignores the surface's structure altogether, so it always reaches the target, but roughly. */
+const sloppy: typeof MeshoptSimplifier = {
+  ...MeshoptSimplifier,
+  simplify: (indices, positions, stride, target, error) =>
+    MeshoptSimplifier.simplifySloppy(indices, positions, stride, null, target, error),
+};
+
+// From gentlest to roughest; the first that fits the budget wins. Models with lots of
+// texture seams (common in scanned and AI-made ones) usually need the seams pass.
+const PASSES: { kind: "gentle" | "seams" | "rough"; transform: (ratio: number) => Transform }[] = [
+  ...[0.002, 0.01, 0.03, 0.08, 0.2, 0.5].map((error) => ({
+    kind: "gentle" as const,
+    transform: (ratio: number) => simplify({ simplifier: MeshoptSimplifier, ratio, error }),
+  })),
+  { kind: "seams", transform: simplifyAcrossSeams },
+  { kind: "rough", transform: (ratio) => simplify({ simplifier: sloppy, ratio, error: 1 }) },
+];
+
+/** Mapbox reads indices as 16-bit numbers, so store them that way. */
+function shortIndices(doc: Document) {
+  for (const mesh of doc.getRoot().listMeshes())
+    for (const prim of mesh.listPrimitives()) {
+      const indices = prim.getIndices();
+      const array = indices?.getArray();
+      if (indices && array instanceof Uint32Array && (prim.getAttribute("POSITION")?.getCount() ?? 0) <= MAX_VERTICES)
+        indices.setArray(new Uint16Array(array));
+    }
+}
+
 /** Merge duplicates, then simplify with meshoptimizer until it fits the budget. */
 async function shrink(bytes: Uint8Array): Promise<{ glb: Uint8Array; triangles: number }> {
   await MeshoptSimplifier.ready;
@@ -252,19 +329,24 @@ async function shrink(bytes: Uint8Array): Promise<{ glb: Uint8Array; triangles: 
 
   if (triangles > budget) {
     const start = triangles;
+    // Each pass starts again from the merged model, kept as bytes.
+    const welded = await io.writeBinary(doc);
     let best: { doc: Document; triangles: number } | null = null;
-    // Allow more and more change to the shape until it fits.
-    for (const error of [0.002, 0.01, 0.03, 0.08, 0.2, 0.5]) {
-      const attempt = await io.readBinary(bytes);
-      await attempt.transform(
-        dedup(),
-        weld(),
-        simplify({ simplifier: MeshoptSimplifier, ratio: Math.min(1, (budget / start) * 0.95), error }),
-        prune(),
-      );
+    const ratio = Math.min(1, (budget / start) * 0.95);
+    let previous = start;
+    let stuck: string | null = null;
+    for (const [pass, { kind, transform }] of PASSES.entries()) {
+      // Once allowing more error stops helping, go straight to the next kind of pass.
+      if (kind === stuck) continue;
+      const attempt = await io.readBinary(welded);
+      await attempt.transform(transform(ratio), prune());
       const count = countDocumentTriangles(attempt);
+      if (process.env.NODE_ENV === "development")
+        console.info(`[upload] pass ${pass + 1} of ${PASSES.length} (${kind}): ${fmt(count)} triangles`);
       if (!best || count < best.triangles) best = { doc: attempt, triangles: count };
       if (count <= budget) break;
+      if (count > previous * 0.98) stuck = kind;
+      previous = count;
     }
     if (!best || best.triangles > budget)
       throw new UploadError(
@@ -275,6 +357,7 @@ async function shrink(bytes: Uint8Array): Promise<{ glb: Uint8Array; triangles: 
   }
 
   await doc.transform(prune());
+  shortIndices(doc);
   if (largestPrimitive(doc) > MAX_VERTICES)
     throw new UploadError("One part of it is still too detailed for the map. Try a simpler model.");
   return { glb: await io.writeBinary(doc), triangles };

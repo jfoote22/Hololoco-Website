@@ -648,7 +648,7 @@ values ('ffffffff-0000-4000-8000-000000000006', 'object', 'Earlier drop', 'gift'
 
 insert into public.assets (id, owner_id, kind, source_format, triangles, model_path, thumbnail_path)
 values
-  ('0f0f0f0f-0000-4000-8000-0000000000f1', 'ffffffff-0000-4000-8000-000000000006', 'model', 'fbx', 9000,
+  ('0f0f0f0f-0000-4000-8000-0000000000f1', 'ffffffff-0000-4000-8000-000000000006', 'model', 'fbx', 20000,
    'ffffffff-0000-4000-8000-000000000006/0f0f0f0f-0000-4000-8000-0000000000f1/model.glb',
    'ffffffff-0000-4000-8000-000000000006/0f0f0f0f-0000-4000-8000-0000000000f1/thumbnail.png'),
   ('0d0d0d0d-0000-4000-8000-0000000000d1', 'dddddddd-0000-4000-8000-000000000004', 'model', 'glb', 500,
@@ -663,6 +663,15 @@ do $$ begin
     insert into perm_test.results (test, passed, detail) values ('uploads stay in their owner''s folder', false, 'insert worked');
   exception when check_violation then
     insert into perm_test.results (test, passed, detail) values ('uploads stay in their owner''s folder', true, sqlerrm);
+  end;
+  begin
+    insert into public.assets (id, owner_id, kind, source_format, triangles, model_path, thumbnail_path)
+    values ('0e0e0e0e-0000-4000-8000-0000000000e2', 'ffffffff-0000-4000-8000-000000000006', 'model', 'glb', 20001,
+            'ffffffff-0000-4000-8000-000000000006/0e0e0e0e-0000-4000-8000-0000000000e2/model.glb',
+            'ffffffff-0000-4000-8000-000000000006/0e0e0e0e-0000-4000-8000-0000000000e2/thumbnail.png');
+    insert into perm_test.results (test, passed, detail) values ('models have at most 20,000 triangles', false, 'insert worked');
+  exception when check_violation then
+    insert into perm_test.results (test, passed, detail) values ('models have at most 20,000 triangles', true, sqlerrm);
   end;
 end $$;
 
@@ -819,7 +828,7 @@ select set_config('request.jwt.claims', '', false);
 -- A test whose check finds no row records nothing, so make sure none went missing.
 -- Update this number when adding or removing a test.
 insert into perm_test.results (test, passed, detail)
-select 'every test recorded a result', count(*) = 85, count(*)::text || ' of 85'
+select 'every test recorded a result', count(*) = 86, count(*)::text || ' of 86'
 from perm_test.results;
 
 -- ===== Clean up, then show the results ====================================

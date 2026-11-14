@@ -31,20 +31,12 @@ export async function generateMetadata({ params }: PageProps<"/d/[id]">): Promis
   };
 }
 
-// The back link and a placeholder show at once on navigation; the drop streams in.
+// A placeholder shows at once on navigation; the drop streams in.
+// The panel itself has the way back to the map.
 export default function DropScreen({ params }: PageProps<"/d/[id]">) {
   return (
     <>
       <SheetHeight size="half" />
-      <Link
-        href="/"
-        className="-ml-1.5 flex min-h-11 items-center gap-1 self-start text-sm font-semibold text-accent hover:underline max-md:fixed max-md:top-3 max-md:left-3 max-md:ml-0 max-md:size-11 max-md:justify-center max-md:rounded-[10px] max-md:bg-surface max-md:text-ink max-md:shadow-[0_2px_8px_rgb(23_36_44/0.18)]"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M15 5l-7 7 7 7" />
-        </svg>
-        <span className="max-md:sr-only">Back to the map</span>
-      </Link>
       <Suspense fallback={<DropPlaceholder />}>
         <DropDetails params={params} />
       </Suspense>

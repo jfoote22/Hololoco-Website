@@ -32,6 +32,8 @@ export type Draft = {
   title: string;
   description: string;
   objectId: string;
+  /** The kind of look chosen. A photo or model has to be ready before moving on. */
+  look: "library" | "photo" | "model";
   /** Set when the drop uses a photo or model instead of objectId. */
   upload: DraftUpload | null;
   placement: Placement | null;
@@ -61,6 +63,7 @@ export function newDraft(): Draft {
     title: "",
     description: "",
     objectId: library[0]?.id ?? "gift",
+    look: "library",
     upload: null,
     placement: null,
     timeZone: browserTimeZone(),
@@ -74,7 +77,9 @@ export function loadDraft(): Draft | null {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return null;
     const draft = JSON.parse(raw) as Draft;
-    return draft?.version === 1 ? { ...draft, upload: draft.upload ?? null } : null;
+    if (draft?.version !== 1) return null;
+    // Drafts saved before `look` existed: go by what they hold.
+    return { ...draft, upload: draft.upload ?? null, look: draft.look ?? draft.upload?.kind ?? "library" };
   } catch {
     return null;
   }
@@ -105,6 +110,7 @@ export function draftFromDrop(drop: MyDrop): Draft {
     title: drop.title,
     description: drop.description,
     objectId: drop.look.kind === "library" ? drop.look.objectId : (library[0]?.id ?? "gift"),
+    look: drop.look.kind === "upload" ? drop.look.assetKind : "library",
     upload:
       drop.look.kind === "upload"
         ? {
@@ -196,6 +202,12 @@ export function problems(draft: Draft, step: Step): string[] {
     if (title.length > limits.titleMaxChars) found.push(`Keep the title to ${limits.titleMaxChars} characters.`);
     if (draft.description.trim().length > limits.descriptionMaxChars)
       found.push(`Keep the description to ${limits.descriptionMaxChars} characters.`);
+    // Never fall back to a ready-made object the person didn't choose.
+    if (draft.look !== "library" && draft.upload?.kind !== draft.look)
+      found.push(
+        `Choose ${draft.look === "photo" ? "a photo" : "a 3D model"} and wait until it's ready, or pick a ready-made object.`,
+      );
+    if (draft.look === "library" && draft.upload) found.push("Pick a ready-made object.");
   }
   if (step === 2) {
     if (!draft.placement) found.push("Place it on the map.");

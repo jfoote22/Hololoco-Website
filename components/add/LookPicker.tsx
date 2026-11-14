@@ -36,7 +36,9 @@ export function LookPicker({
   update: (change: Partial<Draft>) => void;
   preview: UploadPreview | null;
 }) {
-  const [tab, setTab] = useState<Tab>(draft.upload?.kind ?? "library");
+  // Kept in the draft so Next can tell a chosen photo or model apart from one that isn't ready.
+  const tab = draft.look;
+  const setTab = (look: Tab) => update({ look });
   const [working, setWorking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -89,7 +91,8 @@ export function LookPicker({
   const upload = draft.upload && draft.upload.kind === tab ? draft.upload : null;
 
   return (
-    <fieldset className="flex flex-col gap-3">
+    // min-w-0: a fieldset otherwise grows to fit a long file name instead of truncating it.
+    <fieldset className="flex min-w-0 flex-col gap-3">
       <legend className="mb-2 text-sm font-semibold">How it looks</legend>
 
       <div role="group" aria-label="Kind of look" className="grid grid-cols-3 gap-1 rounded-[10px] bg-wash p-1">
@@ -179,7 +182,7 @@ export function LookPicker({
           <p className="text-xs text-muted">
             {tab === "photo"
               ? "JPEG, PNG or WebP. Its location and other details are removed before it leaves your device."
-              : `GLB or FBX. If your FBX keeps its textures in separate image files, choose them at the same time. It's simplified to ${fmt(uploadLimits.modelTriangles)} triangles or fewer, since it's small on the map.`}
+              : `GLB or FBX, up to ${fmt(uploadLimits.modelSourceTriangles)} triangles. If your FBX keeps its textures in separate image files, choose them at the same time. It's simplified to ${fmt(uploadLimits.modelTriangles)} triangles or fewer, since it's small on the map.`}
           </p>
 
           {error && (

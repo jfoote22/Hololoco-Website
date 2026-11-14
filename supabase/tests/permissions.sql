@@ -754,12 +754,16 @@ do $$ begin
   end;
 
   perform public.review_drop(current_setting('t.f1'), 'reject', 'It''s spam.');
-  insert into perm_test.results (test, passed, detail)
-  select 'not approving a drop turns down its upload', status = 'rejected', status
-  from public.assets where id = '0f0f0f0f-0000-4000-8000-0000000000f1';
 end $$;
 reset role;
 select set_config('request.jwt.claims', '', false);
+
+-- Checked as the database owner, since staff can't read upload rows directly.
+insert into perm_test.results (test, passed, detail)
+values ('not approving a drop turns down its upload',
+        coalesce((select status = 'rejected' and public_model_path is null
+                  from public.assets where id = '0f0f0f0f-0000-4000-8000-0000000000f1'), false),
+        (select status::text from public.assets where id = '0f0f0f0f-0000-4000-8000-0000000000f1'));
 
 set role authenticated;
 select set_config('request.jwt.claims', '{"sub":"ffffffff-0000-4000-8000-000000000006","role":"authenticated"}', false);
@@ -779,12 +783,14 @@ set role authenticated;
 select set_config('request.jwt.claims', '{"sub":"eeeeeeee-0000-4000-8000-000000000005","role":"authenticated"}', false);
 do $$ begin
   perform public.review_drop(current_setting('t.f1'), 'reopen');
-  insert into perm_test.results (test, passed, detail)
-  select 'putting a drop back in the queue reopens its upload', status = 'pending', status
-  from public.assets where id = '0f0f0f0f-0000-4000-8000-0000000000f1';
 end $$;
 reset role;
 select set_config('request.jwt.claims', '', false);
+
+insert into perm_test.results (test, passed, detail)
+values ('putting a drop back in the queue reopens its upload',
+        coalesce((select status = 'pending' from public.assets where id = '0f0f0f0f-0000-4000-8000-0000000000f1'), false),
+        (select status::text from public.assets where id = '0f0f0f0f-0000-4000-8000-0000000000f1'));
 
 -- An approved, published upload as visitors see it.
 update public.assets set status = 'approved',
@@ -809,6 +815,12 @@ begin
 end $$;
 reset role;
 select set_config('request.jwt.claims', '', false);
+
+-- A test whose check finds no row records nothing, so make sure none went missing.
+-- Update this number when adding or removing a test.
+insert into perm_test.results (test, passed, detail)
+select 'every test recorded a result', count(*) = 85, count(*)::text || ' of 85'
+from perm_test.results;
 
 -- ===== Clean up, then show the results ====================================
 drop table if exists pg_temp.perm_test_results;

@@ -1,7 +1,20 @@
 // The database returns drops as JSON (drop_to_json in the first migration).
 // These turn that into the shapes the app uses.
 
-import type { AssetFiles, Audience, Look, MyDrop, Owner, Placement, PublicDrop, Review, Timing } from "./types";
+import type {
+  AssetFiles,
+  Audience,
+  DropCheck,
+  DropType,
+  Look,
+  MyDrop,
+  Offer,
+  Owner,
+  Placement,
+  PublicDrop,
+  Review,
+  Timing,
+} from "./types";
 
 type AssetJson = {
   id: string;
@@ -14,11 +27,13 @@ type AssetJson = {
 
 export type DropJson = {
   id: string;
-  type: "object" | "message";
+  type: DropType;
   title: string;
   description: string;
   objectId: string | null;
   asset: AssetJson | null;
+  /** Offers only. */
+  offer?: Offer | null;
   placement: Placement;
   timeZone: string;
   timing: Timing;
@@ -34,6 +49,8 @@ export type DropJson = {
   hiddenForReport?: boolean;
   /** Only from my_drops and the review queue: the upload's private files. */
   assetFiles?: AssetFiles | null;
+  /** Only from my_drops (what the owner may see) and the review queue (everything). */
+  check?: DropCheck | null;
 };
 
 export function dropFromJson(j: DropJson): PublicDrop {
@@ -52,6 +69,7 @@ export function dropFromJson(j: DropJson): PublicDrop {
     audience: j.audience,
     status,
     owner: j.owner,
+    ...(j.offer ? { offer: j.offer } : {}),
   };
 }
 
@@ -65,6 +83,7 @@ export function myDropFromJson(j: DropJson): MyDrop {
     createdAt: j.createdAt,
     hiddenForReport: j.hiddenForReport === true,
     assetFiles: j.assetFiles ?? null,
+    check: j.check ?? null,
   };
 }
 

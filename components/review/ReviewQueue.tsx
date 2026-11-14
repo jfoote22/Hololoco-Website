@@ -10,7 +10,7 @@ import { useSession } from "@/components/auth/session";
 import { DropThumb } from "@/components/DropThumb";
 import { useMap } from "@/components/map/MapProvider";
 import { choiceCard, inputClass, labelClass, textButton } from "@/components/ui";
-import { timingText, typeLabel } from "@/lib/drops/format";
+import { offerCountText, rarityLabel, rarityText, timingText, typeLabel } from "@/lib/drops/format";
 import type { MyDrop } from "@/lib/drops/types";
 import { attachPreviews } from "@/lib/assets";
 import { reasonLabel } from "@/lib/reports";
@@ -24,6 +24,7 @@ import {
   listReports,
   publishUpload,
   REJECT_REASONS,
+  strikeNote,
   timeAgo,
   type Decision,
   type HistoryItem,
@@ -51,9 +52,10 @@ type Loaded = {
 type Notice = { userId: string | null; text: string; undo?: { id: string; title: string } };
 
 function ownerLine(item: QueueItem): string {
-  if (item.ownerApproved === 0 && item.ownerRejected === 0) return "their first drop";
-  const approved = `${item.ownerApproved} approved before`;
-  return item.ownerRejected ? `${approved}, ${item.ownerRejected} not approved` : approved;
+  const strikes = item.ownerStrikes === 1 ? "1 strike" : `${item.ownerStrikes} strikes`;
+  if (item.ownerStrikes > 0) return `${strikes}, ${item.ownerApproved} approved`;
+  if (item.ownerStanding === "review") return "a complaint is open";
+  return item.ownerApproved === 0 ? "their first drop" : `${item.ownerApproved} approved`;
 }
 
 function factsLine(drop: MyDrop): string {
@@ -193,8 +195,10 @@ export function ReviewQueue() {
       <div className="flex flex-col gap-1">
         <h1 className="text-[22px] font-bold">Review</h1>
         <p className="text-sm text-muted">
-          Reports come first, then each new account&apos;s first drop. Keep or approve anything that follows the content
-          rules; if something doesn&apos;t, say why. The owner sees the reason.
+          Drops go live at once. Reports come first; then drops waiting for a person: every photo and model, and
+          everything from accounts with a complaint or a strike. Keep or approve anything that follows the content
+          rules. If something doesn&apos;t, say why: the owner sees the reason, and it&apos;s a strike. Three strikes
+          suspend an account.
         </p>
       </div>
 
@@ -253,6 +257,7 @@ export function ReviewQueue() {
                       busy={busy === item.drop.id}
                       approveLabel="Keep it"
                       rejectLabel="Take it down"
+                      rejectNote={strikeNote(item.ownerStrikes)}
                       onApprove={() => approveItem(item.drop, true)}
                       onReject={(reason) => rejectItem(item.drop, reason, true)}
                       onShow={() => showOnMap(item.drop)}
@@ -295,7 +300,11 @@ export function ReviewQueue() {
           <h2 id="queue-heading" className="text-base font-semibold">
             {current.queue.length === 0 ? "Nothing waiting for review" : `Waiting for review (${current.queue.length})`}
           </h2>
-          {current.queue.length === 0 && <p className="text-sm text-muted">New accounts&apos; first drops show up here.</p>}
+          {current.queue.length === 0 && (
+            <p className="text-sm text-muted">
+              Photos and models, and drops from accounts with a complaint or a strike, show up here.
+            </p>
+          )}
           <ul className="flex flex-col divide-y divide-line">
             {current.queue.map((item) => (
               <li key={item.id} className="flex flex-col gap-2 py-3">
@@ -310,12 +319,24 @@ export function ReviewQueue() {
                   </div>
                 </div>
                 {item.description && <p className="text-sm break-words whitespace-pre-line">{item.description}</p>}
+                {item.offer && (
+                  <p className="text-sm break-words">
+                    <b className="font-semibold">{item.offer.savings}</b>
+                    <span className="text-[13px] text-muted">
+                      {" "}
+                      · {offerCountText(item.offer)} · {rarityText(item.offer)}
+                    </span>
+                    {item.offer.terms && <span className="block text-[13px] text-muted">Terms: {item.offer.terms}</span>}
+                  </p>
+                )}
                 <p className="text-[13px] text-muted">{factsLine(item)}</p>
+                <CheckFacts item={item} />
                 {item.look.kind === "upload" && <UploadFacts item={item} check={checks[item.id]} />}
                 <Decide
                   busy={busy === item.id}
                   approveLabel="Approve"
                   rejectLabel="Don't approve"
+                  rejectNote={strikeNote(item.ownerStrikes)}
                   blockApprove={uploadBlock(item)}
                   onApprove={() => approveItem(item, false)}
                   onReject={(reason) => rejectItem(item, reason, false)}
@@ -401,6 +422,7 @@ function Decide({
   approveLabel,
   rejectLabel,
   blockApprove = null,
+  rejectNote,
   onApprove,
   onReject,
   onShow,
@@ -408,6 +430,8 @@ function Decide({
   busy: boolean;
   approveLabel: string;
   rejectLabel: string;
+  /** What not approving means for the owner, shown before confirming. */
+  rejectNote?: string;
   /** Why approving isn't possible yet, if it isn't. */
   blockApprove?: string | null;
   onApprove: () => void;
@@ -482,6 +506,7 @@ function Decide({
           className={`${inputClass} py-2 leading-normal`}
         />
       </label>
+      {rejectNote && <p className="text-[13px] text-muted">{rejectNote}</p>}
       {problem && (
         <p role="alert" className="text-sm text-rejected">
           {problem}
@@ -504,6 +529,44 @@ function Decide({
         </button>
       </div>
     </form>
+  );
+}
+
+/** What the automatic check said, or why it couldn't. */
+function CheckFacts({ item }: { item: MyDrop }) {
+  const check = item.check;
+  if (!check) return null;
+  const why =
+    check.error === "not_configured"
+      ? "The automatic check isn't set up, so it couldn't look at this."
+      : check.error === "daily_limit"
+        ? "This account has used its automatic checks for today."
+        : check.error
+          ? `The automatic check couldn't run: ${check.error}`
+          : null;
+  return (
+    <div className="flex flex-col gap-1 rounded-lg bg-wash px-3 py-2 text-[13px]">
+      <b className="font-semibold">
+        {why ? "Automatic check: couldn't run" : `Automatic check: ${check.decision === "approve" ? "would approve" : "held it"}`}
+      </b>
+      {why && <p>{why}</p>}
+      {check.reason && <p>{check.reason}</p>}
+      {check.concerns && check.concerns.length > 0 && (
+        <ul className="list-disc pl-5">
+          {check.concerns.map((concern) => (
+            <li key={concern}>{concern}</li>
+          ))}
+        </ul>
+      )}
+      {item.offer && check.suggestedRarity && (
+        <p className="text-muted">
+          Suggests {rarityLabel[check.suggestedRarity]}
+          {check.suggestedRarity !== item.offer.rarity && ` (the business chose ${rarityLabel[item.offer.rarity]})`}
+          {check.rarityReason && `: ${check.rarityReason}`}
+        </p>
+      )}
+      {check.ownerNote && <p className="text-muted">Told the owner: {check.ownerNote}</p>}
+    </div>
   );
 }
 

@@ -14,14 +14,26 @@ import { SheetHeight } from "@/components/map/SheetHeight";
 import { SearchBox } from "@/components/SearchBox";
 import { primaryButton, textButton } from "@/components/ui";
 import { Welcome } from "./Welcome";
-import { timingText, typeLabel } from "@/lib/drops/format";
+import { offerCountText, rarityLabel, rarityText, timingText, typeLabel } from "@/lib/drops/format";
 import { attachPreviews } from "@/lib/assets";
-import { deleteDrop, getProfile, listMyDrops, setPaused } from "@/lib/drops/mine";
-import type { MyDrop } from "@/lib/drops/types";
+import { deleteDrop, getProfile, getStanding, listMyDrops, setPaused, setRarity, type Standing } from "@/lib/drops/mine";
+import type { MyDrop, Rarity } from "@/lib/drops/types";
 
-type Loaded = { userId: string; drops: MyDrop[] | null; error: string | null; isStaff: boolean };
+type Loaded = {
+  userId: string;
+  drops: MyDrop[] | null;
+  error: string | null;
+  isStaff: boolean;
+  standing: Standing | null;
+};
 
-function statusOf(drop: MyDrop): { word: string; tone: string; line?: string } {
+/** The automatic check hasn't finished with it yet. */
+const isChecking = (drop: MyDrop) =>
+  drop.review === "pending" && drop.check !== null && ["queued", "running", "retry"].includes(drop.check.state);
+
+function statusOf(drop: MyDrop, suspended: boolean): { word: string; tone: string; line?: string } {
+  if (suspended && drop.review === "approved")
+    return { word: "Hidden", tone: "text-muted", line: "Hidden from the app while your account is suspended." };
   if (drop.review === "rejected")
     return {
       word: "Not approved",
@@ -30,8 +42,19 @@ function statusOf(drop: MyDrop): { word: string; tone: string; line?: string } {
     };
   if (drop.review === "pending" && drop.hiddenForReport)
     return { word: "Hidden for now", tone: "text-review", line: "Someone reported it. It's off the map until a person checks it." };
-  if (drop.review === "pending")
-    return { word: "In review", tone: "text-review", line: "Only you can see it until a person has checked it." };
+  if (isChecking(drop))
+    return { word: "Checking", tone: "text-review", line: "An automatic check is looking at it. This usually takes under a minute." };
+  if (drop.review === "pending") {
+    const person =
+      drop.look.kind === "upload" && drop.look.status !== "approved"
+        ? "A person checks every photo and model, usually within a day."
+        : "A person is checking it, usually within a day.";
+    return {
+      word: "In review",
+      tone: "text-review",
+      line: `${drop.check?.ownerNote ? `${drop.check.ownerNote} ` : ""}${person} Until then only you can see it.`,
+    };
+  }
   if (drop.paused) return { word: "Paused", tone: "text-muted", line: "Hidden until you resume it." };
   if (drop.audience === "link") return { word: "Live, link only", tone: "text-good" };
   if (!drop.openNow) return { word: "Live, outside its hours", tone: "text-good", line: timingText(drop.timing) ?? undefined };
@@ -51,15 +74,51 @@ export function YourDrops() {
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    Promise.all([listMyDrops().then(attachPreviews), getProfile(userId)])
-      .then(([drops, profile]) => !cancelled && setLoaded({ userId, drops, error: null, isStaff: profile?.isStaff ?? false }))
-      .catch((error: Error) => !cancelled && setLoaded({ userId, drops: null, error: error.message, isStaff: false }));
+    Promise.all([listMyDrops().then(attachPreviews), getProfile(userId), getStanding()])
+      .then(
+        ([drops, profile, standing]) =>
+          !cancelled && setLoaded({ userId, drops, error: null, isStaff: profile?.isStaff ?? false, standing }),
+      )
+      .catch(
+        (error: Error) =>
+          !cancelled && setLoaded({ userId, drops: null, error: error.message, isStaff: false, standing: null }),
+      );
     return () => {
       cancelled = true;
     };
   }, [userId]);
 
   const mine = loaded?.userId === userId ? loaded : null;
+  const checking = mine?.drops?.filter(isChecking).map((d) => d.id).join(",") ?? "";
+
+  // While the automatic check works on something, look again every few seconds,
+  // for up to about three minutes.
+  useEffect(() => {
+    if (!userId || !checking) return;
+    let cancelled = false;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const look = () => {
+      timer = setTimeout(async () => {
+        tries++;
+        try {
+          const drops = await attachPreviews(await listMyDrops());
+          if (cancelled) return;
+          setLoaded((l) => (l?.userId === userId ? { ...l, drops } : l));
+          const still = drops.filter(isChecking).map((d) => d.id).join(",");
+          if (still !== checking) reload();
+          if (still && tries < 45) look();
+        } catch {
+          if (!cancelled && tries < 45) look();
+        }
+      }, 4000);
+    };
+    look();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [userId, checking, reload]);
   const added = params.get("added");
   const saved = params.get("saved");
 
@@ -76,6 +135,20 @@ export function YourDrops() {
     setBusy(null);
     if (failed) return setActionError(failed);
     replace(drop.id, (d) => ({ ...d, paused: !d.paused, status: d.paused ? "live" : "paused" }));
+    reload();
+  }
+
+  async function changeRarity(drop: MyDrop, rarity: Rarity) {
+    if (!drop.offer) return;
+    setBusy(drop.id);
+    setActionError(null);
+    const failed = await setRarity(drop.id, rarity);
+    setBusy(null);
+    if (failed) return setActionError(failed);
+    // Changing it sends the offer back for the check.
+    replace(drop.id, (d) =>
+      d.offer ? { ...d, offer: { ...d.offer, rarity }, review: "pending", check: { state: "queued" } } : d,
+    );
     reload();
   }
 
@@ -112,6 +185,7 @@ export function YourDrops() {
   }
 
   const justAdded = added ? mine?.drops?.find((d) => d.id === added) : undefined;
+  const suspended = mine?.standing?.standing === "suspended";
 
   return (
     <>
@@ -123,13 +197,19 @@ export function YourDrops() {
 
       {signInFailed}
 
+      {mine?.standing && mine.standing.standing !== "good" && !mine.isStaff && (
+        <StandingNotice standing={mine.standing} />
+      )}
+
       {justAdded && (
         <p role="status" className="rounded-lg bg-accent-wash px-3 py-2.5 text-sm">
           {justAdded.review !== "pending"
             ? "Thanks! Your drop is live."
-            : justAdded.look.kind === "upload"
+            : justAdded.look.kind === "upload" && justAdded.look.status !== "approved"
               ? "Thanks! Your drop is in review. A person checks every photo and model, usually within a day. Until then only you can see it."
-              : "Thanks! Your drop is in review. A person checks each new account's first drop, usually within a day. Until then only you can see it."}
+              : isChecking(justAdded)
+                ? "Thanks! An automatic check is looking at it now. This usually takes under a minute."
+                : "Thanks! A person will check it, usually within a day. Until then only you can see it."}
         </p>
       )}
       {mine?.isStaff && (
@@ -148,13 +228,17 @@ export function YourDrops() {
         </p>
       )}
 
-      <Link href="/add" className={primaryButton}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-        Add to the map
-      </Link>
-      <SearchBox />
+      {!suspended && (
+        <>
+          <Link href="/add" className={primaryButton}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            Add to the map
+          </Link>
+          <SearchBox />
+        </>
+      )}
 
       {!mine && <p className="text-sm text-muted">Loading your drops…</p>}
       {mine?.error && <p className="text-sm text-rejected">{mine.error}</p>}
@@ -163,7 +247,7 @@ export function YourDrops() {
       {mine?.drops && mine.drops.length > 0 && (
         <ul className="flex flex-col divide-y divide-line">
           {mine.drops.map((drop) => {
-            const status = statusOf(drop);
+            const status = statusOf(drop, suspended);
             return (
               <li key={drop.id} className="flex flex-col gap-2 py-3">
                 <div className="flex items-start gap-3">
@@ -173,9 +257,16 @@ export function YourDrops() {
                     <span className="text-[13px] text-muted">
                       {typeLabel[drop.type]} · <b className={`font-semibold ${status.tone}`}>{status.word}</b>
                     </span>
+                    {drop.offer && (
+                      <span className="text-[13px] text-muted">
+                        {drop.offer.savings} · {offerCountText(drop.offer)} · {rarityText(drop.offer)}
+                      </span>
+                    )}
                     {status.line && <span className="text-[13px] text-muted">{status.line}</span>}
                   </div>
                 </div>
+
+                <CheckTips drop={drop} busy={busy === drop.id} onUseRarity={(rarity) => changeRarity(drop, rarity)} />
 
                 {confirming === drop.id ? (
                   <div className="flex flex-wrap items-center gap-x-3 rounded-lg bg-wash px-3 py-1">
@@ -197,10 +288,12 @@ export function YourDrops() {
                     <button type="button" onClick={() => showOnMap(drop)} className={textButton}>
                       Show on the map
                     </button>
-                    <Link href={`/add?edit=${drop.id}`} className={textButton}>
-                      Edit
-                    </Link>
-                    {drop.review !== "rejected" && (
+                    {!suspended && (
+                      <Link href={`/add?edit=${drop.id}`} className={textButton}>
+                        Edit
+                      </Link>
+                    )}
+                    {drop.review !== "rejected" && !suspended && (
                       <button
                         type="button"
                         disabled={busy === drop.id}
@@ -228,5 +321,56 @@ export function YourDrops() {
         </button>
       </div>
     </>
+  );
+}
+
+/** Why this account's drops wait for a person, or why it can't add any. */
+function StandingNotice({ standing }: { standing: Standing }) {
+  const taken = standing.strikes === 1 ? "one of your drops" : `${standing.strikes} of your drops`;
+  if (standing.standing === "suspended")
+    return (
+      <p role="status" className="rounded-lg bg-wash px-3 py-2.5 text-sm">
+        <b className="block font-semibold text-rejected">Your account is suspended</b>
+        Hololoco took down three of your drops, so your drops are hidden from the app and you can&apos;t add or change
+        any. You can still delete them. If you think this is a mistake, contact Hololoco.
+      </p>
+    );
+  return (
+    <p role="status" className="rounded-lg bg-wash px-3 py-2.5 text-sm">
+      <b className="block font-semibold text-review">A person checks your drops for now</b>
+      {standing.strikes > 0
+        ? `Hololoco took down ${taken}, so your new drops and changes wait for a person before people can see them, usually within a day. After three, your account is suspended.`
+        : "Someone reported one of your drops. Until a person has looked at it, your new drops and changes wait for a person before people can see them, usually within a day."}
+    </p>
+  );
+}
+
+/** What the automatic check suggests: a different rarity for an offer, and where to put it. */
+function CheckTips({ drop, busy, onUseRarity }: { drop: MyDrop; busy: boolean; onUseRarity: (rarity: Rarity) => void }) {
+  const check = drop.check;
+  if (!check || check.state !== "done" || drop.review === "rejected") return null;
+  const suggested = drop.offer && check.suggestedRarity && check.suggestedRarity !== drop.offer.rarity ? check.suggestedRarity : null;
+  // A held drop's note is already in its status line.
+  const note = drop.review === "approved" ? check.ownerNote : undefined;
+  if (!suggested && !check.placementTip && !note) return null;
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg bg-wash px-3 py-2 text-[13px]">
+      {note && <p>{note}</p>}
+      {suggested && (
+        <div className="flex flex-wrap items-center gap-x-3">
+          <p className="min-w-0 flex-1">
+            <b className="font-semibold">Our check suggests {rarityLabel[suggested]}.</b> {check.rarityReason}
+          </p>
+          <button type="button" disabled={busy} onClick={() => onUseRarity(suggested)} className={`${textButton} min-h-9 text-[13px]`}>
+            Make it {rarityLabel[suggested]}
+          </button>
+        </div>
+      )}
+      {check.placementTip && (
+        <p>
+          <b className="font-semibold">Tip:</b> {check.placementTip}
+        </p>
+      )}
+    </div>
   );
 }

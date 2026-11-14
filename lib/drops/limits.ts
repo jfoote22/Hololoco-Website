@@ -5,6 +5,11 @@ export const limits = {
   titleMaxChars: 70,
   descriptionMaxChars: 400,
 
+  offerSavingsMaxChars: 60,
+  offerTermsMaxChars: 300,
+  offerMaxQuantity: 10_000,
+  offerMaxPerPerson: 10,
+
   maxSizeMetres: 30,
   maxHeightMetres: 100,
 

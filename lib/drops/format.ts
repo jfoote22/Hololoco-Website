@@ -2,7 +2,7 @@
 
 import { publicAssetUrl } from "@/lib/assets";
 import { libraryObject } from "@/lib/library/objects";
-import type { DropType, Offer, PublicDrop, Timing, Weekday, WeeklyBlock } from "./types";
+import type { DropType, Offer, PublicDrop, Rarity, Timing, Weekday, WeeklyBlock } from "./types";
 
 export const typeLabel: Record<DropType, string> = {
   object: "Object",
@@ -27,17 +27,21 @@ export function modelFor(drop: PublicDrop): string | null {
   return publicAssetUrl(drop.look.model);
 }
 
-/** "Saves $3, one per person" */
-export function savingsText(offer: Offer): string {
+export const rarityLabel: Record<Rarity, string> = {
+  common: "Common",
+  uncommon: "Uncommon",
+  rare: "Rare",
+};
+
+/** "50 in all, one per person" */
+export function offerCountText(offer: Pick<Offer, "quantity" | "perPersonLimit">): string {
   const each = offer.perPersonLimit === 1 ? "one per person" : `up to ${offer.perPersonLimit} per person`;
-  const saves = offer.savings.startsWith("$") ? `Saves ${offer.savings}` : `Get ${offer.savings}`;
-  return `${saves}, ${each}`;
+  return `${offer.quantity.toLocaleString("en-US")} in all, ${each}`;
 }
 
-/** "150 left at this location" */
-export function remainingText(offer: Offer): string {
-  if (offer.remaining <= 0) return "All claimed";
-  return `${offer.remaining} left at this location`;
+/** "Uncommon, in quests" */
+export function rarityText(offer: Pick<Offer, "rarity" | "inQuests">): string {
+  return `${rarityLabel[offer.rarity]}${offer.inQuests ? ", in quests" : ""}`;
 }
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];

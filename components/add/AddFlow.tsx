@@ -1,6 +1,6 @@
 "use client";
 
-// The add flow: What, Where, When and who. It never leaves the map: the drop
+// The add flow: What, Where and When. It never leaves the map: the drop
 // appears on the map as soon as it has a place, and sign-in waits until Publish.
 
 import { useRouter, useSearchParams } from "next/navigation";
@@ -15,6 +15,7 @@ import { limits } from "@/lib/drops/limits";
 import { listMyDrops } from "@/lib/drops/mine";
 import { library, libraryObject } from "@/lib/library/objects";
 import { forgetUpload } from "@/lib/upload/store";
+import type { DropType } from "@/lib/drops/types";
 import {
   clearDraft,
   draftFromDrop,
@@ -24,6 +25,7 @@ import {
   problems,
   storeDraft,
   type Draft,
+  type DraftOffer,
   type Step,
 } from "./draft";
 import { LookPicker } from "./LookPicker";
@@ -31,7 +33,14 @@ import { PublishBox, type Published } from "./PublishBox";
 import { useUploadPreview, type UploadPreview } from "./useUploadPreview";
 import { WhenStep } from "./WhenStep";
 
-const STEP_NAMES: Record<Step, string> = { 1: "What", 2: "Where", 3: "When and who" };
+const STEP_NAMES: Record<Step, string> = { 1: "What", 2: "Where", 3: "When" };
+const stepName = (step: Step, type: DropType) => (step === 3 && type === "offer" ? "When and how rare" : STEP_NAMES[step]);
+
+const TYPES: { type: DropType; name: string; line: string }[] = [
+  { type: "offer", name: "Offer", line: "A deal people collect in the app and redeem at your business." },
+  { type: "object", name: "Object", line: "Something to find at a place, with a short caption." },
+  { type: "message", name: "Message", line: "A note for people who come by." },
+];
 
 const subscribeToNothing = () => () => {};
 
@@ -187,7 +196,7 @@ function AddFlow({ editId }: { editId: string | null }) {
         </h1>
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm text-muted">
-            Step {draft.step} of 3: {STEP_NAMES[draft.step]}
+            Step {draft.step} of 3: {stepName(draft.step, draft.type)}
           </p>
           <button type="button" onClick={startOver} className={textButton}>
             {draft.editing ? "Cancel" : "Start over"}
@@ -241,7 +250,7 @@ function AddFlow({ editId }: { editId: string | null }) {
               disabled={draft.step === 2 && status !== "ready"}
               className={`${primaryButton} flex-[2]`}
             >
-              Next: {STEP_NAMES[(draft.step + 1) as Step]}
+              Next: {stepName((draft.step + 1) as Step, draft.type)}
             </button>
           </div>
         )}
@@ -259,36 +268,33 @@ function WhatStep({ draft, update, preview }: StepProps & { preview: UploadPrevi
     <div className="flex flex-col gap-4">
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 text-sm font-semibold">What is it?</legend>
-        <label className={choiceCard}>
-          <input
-            type="radio"
-            name="type"
-            checked={draft.type === "object"}
-            onChange={() => update({ type: "object" })}
-            className="mt-1 accent-accent"
-          />
-          <span className="text-sm">
-            <b className="block">Object</b>
-            <span className="text-muted">Something to find at a place, with a short caption.</span>
-          </span>
-        </label>
-        <label className={choiceCard}>
-          <input
-            type="radio"
-            name="type"
-            checked={draft.type === "message"}
-            onChange={() => update({ type: "message", objectId: draft.objectId === library[0]?.id ? "note" : draft.objectId })}
-            className="mt-1 accent-accent"
-          />
-          <span className="text-sm">
-            <b className="block">Message</b>
-            <span className="text-muted">A note for people who come by.</span>
-          </span>
-        </label>
+        {TYPES.map(({ type, name, line }) => (
+          <label key={type} className={choiceCard}>
+            <input
+              type="radio"
+              name="type"
+              checked={draft.type === type}
+              onChange={() =>
+                update({
+                  type,
+                  // A speech bubble suits a message, unless they already chose something else.
+                  objectId: type === "message" && draft.objectId === library[0]?.id ? "note" : draft.objectId,
+                })
+              }
+              className="mt-1 accent-accent"
+            />
+            <span className="text-sm">
+              <b className="block">{name}</b>
+              <span className="text-muted">{line}</span>
+            </span>
+          </label>
+        ))}
       </fieldset>
 
+      {draft.type === "offer" && <OfferFields offer={draft.offer} update={(offer) => update({ offer: { ...draft.offer, ...offer } })} />}
+
       <label className={labelClass}>
-        Title
+        {draft.type === "offer" ? "Title people see" : "Title"}
         <input
           value={draft.title}
           maxLength={limits.titleMaxChars}
@@ -302,7 +308,7 @@ function WhatStep({ draft, update, preview }: StepProps & { preview: UploadPrevi
       </label>
 
       <label className={labelClass}>
-        {draft.type === "message" ? "Message" : "Caption (optional)"}
+        {draft.type === "message" ? "Message" : draft.type === "offer" ? "More about it (optional)" : "Caption (optional)"}
         <textarea
           value={draft.description}
           maxLength={limits.descriptionMaxChars}
@@ -317,6 +323,65 @@ function WhatStep({ draft, update, preview }: StepProps & { preview: UploadPrevi
       </label>
 
       <LookPicker draft={draft} update={update} preview={preview} />
+    </div>
+  );
+}
+
+/** What people get, how many, and the terms. */
+function OfferFields({ offer, update }: { offer: DraftOffer; update: (change: Partial<DraftOffer>) => void }) {
+  const whole = (value: string) => (value === "" ? 0 : Math.floor(Number(value)));
+  return (
+    <div className="flex flex-col gap-4 rounded-lg border border-line p-3">
+      <label className={labelClass}>
+        What do people get?
+        <input
+          value={offer.savings}
+          maxLength={limits.offerSavingsMaxChars}
+          placeholder="Buy one coffee, get one free"
+          onChange={(event) => update({ savings: event.target.value })}
+          className={inputClass}
+        />
+        <span className="text-xs font-normal text-muted">Say it plainly. This is what people see first.</span>
+      </label>
+
+      <div className="grid grid-cols-2 gap-3">
+        <label className={labelClass}>
+          How many in all
+          <input
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={limits.offerMaxQuantity}
+            value={offer.quantity || ""}
+            onChange={(event) => update({ quantity: whole(event.target.value) })}
+            className={inputClass}
+          />
+        </label>
+        <label className={labelClass}>
+          Each person can claim
+          <input
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={limits.offerMaxPerPerson}
+            value={offer.perPerson || ""}
+            onChange={(event) => update({ perPerson: whole(event.target.value) })}
+            className={inputClass}
+          />
+        </label>
+      </div>
+
+      <label className={labelClass}>
+        Terms (optional)
+        <textarea
+          value={offer.terms}
+          maxLength={limits.offerTermsMaxChars}
+          rows={2}
+          placeholder="Dine-in only. Not with other offers."
+          onChange={(event) => update({ terms: event.target.value })}
+          className={`${inputClass} py-2 leading-normal`}
+        />
+      </label>
     </div>
   );
 }

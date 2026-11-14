@@ -1,12 +1,31 @@
 "use client";
 
-// When and who: Always and Everyone are the defaults, so most people just publish.
-// Weekly hours show all seven days in every block, and each block must end after it starts.
+// When: Always is the default, so most people just publish. Weekly hours show
+// all seven days in every block, and each block must end after it starts.
+// Offers also say how rare they are and whether they can be part of quests.
 
 import { useMemo, useState } from "react";
 import { choiceCard, inputClass, labelClass, textButton } from "@/components/ui";
-import type { Timing, Weekday, WeeklyBlock } from "@/lib/drops/types";
+import type { Rarity, Timing, Weekday, WeeklyBlock } from "@/lib/drops/types";
 import { defaultTiming, type Draft } from "./draft";
+
+const RARITIES: { rarity: Rarity; name: string; line: string }[] = [
+  {
+    rarity: "common",
+    name: "Common",
+    line: "An everyday deal, like a dollar off a coffee. People come across it often.",
+  },
+  {
+    rarity: "uncommon",
+    name: "Uncommon",
+    line: "A better deal, like a free drink with a meal. It shows up less often and looks more special.",
+  },
+  {
+    rarity: "rare",
+    name: "Rare",
+    line: "Something worth hunting for, like a free meal or merchandise. Hard to find, and saved for the end of a quest.",
+  },
+];
 
 const DAYS: { day: Weekday; short: string; name: string }[] = [
   { day: 1, short: "M", name: "Monday" },
@@ -104,6 +123,48 @@ export function WhenStep({ draft, update }: Props) {
       )}
 
       {timing.kind !== "always" && <TimeZone value={draft.timeZone} onChange={(timeZone) => update({ timeZone })} />}
+
+      {draft.type === "offer" && (
+        <>
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-1 text-sm font-semibold">How rare is it?</legend>
+            <p className="mb-1 text-[13px] text-muted">
+              Rarer offers are harder to find in the app and look more special.
+            </p>
+            {RARITIES.map(({ rarity, name, line }) => (
+              <label key={rarity} className={choiceCard}>
+                <input
+                  type="radio"
+                  name="rarity"
+                  checked={draft.offer.rarity === rarity}
+                  onChange={() => update({ offer: { ...draft.offer, rarity } })}
+                  className="mt-1 accent-accent"
+                />
+                <span className="text-sm">
+                  <b className="block">{name}</b>
+                  <span className="text-muted">{line}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+
+          <label className={choiceCard}>
+            <input
+              type="checkbox"
+              checked={draft.offer.inQuests}
+              onChange={(event) => update({ offer: { ...draft.offer, inQuests: event.target.checked } })}
+              className="mt-1 size-4 accent-accent"
+            />
+            <span className="text-sm">
+              <b className="block">Let it be part of quests</b>
+              <span className="text-muted">
+                Hololoco can link your offer with other businesses nearby into a quest, where people collect one stage
+                after another. Common offers fit the first stages; rare ones the last. You can leave at any time.
+              </span>
+            </span>
+          </label>
+        </>
+      )}
     </div>
   );
 }

@@ -69,15 +69,23 @@ export type Drop = {
   status: DropStatus;
 };
 
-/** Public offer fields. The promo code lives in its own table and only a claim returns it. */
+/**
+ * How rare an offer is, set by the business: how it looks in the app, how often
+ * people come across it, and which stage of a quest it can be in.
+ */
+export type Rarity = "common" | "uncommon" | "rare";
+
+/** Public offer fields. */
 export type Offer = {
-  dropId: string;
-  /** Shown as written, e.g. "$3". */
+  /** What people get, shown as written, e.g. "Buy one coffee, get one free". */
   savings: string;
   quantity: number;
   remaining: number;
   perPersonLimit: number;
   terms: string;
+  rarity: Rarity;
+  /** The business lets Hololoco link it into quests with other businesses nearby. */
+  inQuests: boolean;
 };
 
 /** The public face of whoever posted a drop. */
@@ -101,8 +109,29 @@ export type PublicDrop = Drop & {
   preview?: { model?: string; thumbnail?: string; photo?: string };
 };
 
-/** Set by the database: an account's drops are reviewed until one is approved. */
+/** Set by the database: every new or changed drop waits for the automatic check, or a person. */
 export type Review = "pending" | "approved" | "rejected";
+
+/**
+ * The automatic check on a drop. While it's going, only `state`; once it's done
+ * (or has handed the drop to a person), what it said.
+ */
+export type DropCheck = {
+  state: "queued" | "running" | "retry" | "done" | "failed";
+  /** What happened: approved, or held for a person. */
+  applied?: "approve" | "hold" | "ignored";
+  /** What the check says to the owner, if anything. */
+  ownerNote?: string;
+  suggestedRarity?: Rarity;
+  rarityReason?: string;
+  placementTip?: string;
+  /** Staff only. */
+  decision?: "approve" | "hold";
+  reason?: string;
+  concerns?: string[];
+  error?: string;
+  model?: string;
+};
 
 /** One of the signed-in person's own drops, with what only they see. */
 export type MyDrop = PublicDrop & {
@@ -117,12 +146,26 @@ export type MyDrop = PublicDrop & {
   hiddenForReport: boolean;
   /** Its upload's private files, if it uses one. */
   assetFiles: AssetFiles | null;
+  /** The automatic check, or null for drops that never had one. */
+  check: DropCheck | null;
+};
+
+/** An offer as the add flow sends it. */
+export type OfferInput = {
+  savings: string;
+  terms: string;
+  quantity: number;
+  perPerson: number;
+  rarity: Rarity;
+  inQuests: boolean;
 };
 
 /** What the add flow sends to the database (save_drop). No id means a new drop. */
 export type DropInput = {
   id?: string;
-  type: "object" | "message";
+  type: DropType;
+  /** Offers only. */
+  offer?: OfferInput;
   title: string;
   description: string;
   /** A ready-made object, or null when the drop uses an upload. */

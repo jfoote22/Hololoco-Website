@@ -6,9 +6,9 @@ This repository is the website at hololoco.com. It replaces the 2021 portal and 
 
 ## Status
 
-The website became the business side on 2026-11-14: the start page asks people to sign in, and the public browsing (type filters, the nearby list, drop pages, View in AR) moved to the app. Next come offers with quest tiers and an automatic AI review, then a quest builder; see the design doc's "Quests" section.
+The website became the business side on 2026-11-14: the start page asks people to sign in, and the public browsing (type filters, the nearby list, drop pages, View in AR) moved to the app. The same day, offers arrived, with a rarity the business sets (common, uncommon or rare) and a choice to be part of quests. Drops now go live at once; a complaint puts an account's drops in front of a person, and three strikes suspend it. An automatic check by Claude is built but switched off. Next comes the quest builder; see the design doc's "Quests" section.
 
-Phase 3, safety, has started: the review queue, reports, and photo and 3D model uploads are built. Rules on where drops can go and the legal pages have moved later in the plan. Phase 2, adding to the map, is built and waiting on its gate: sign-in at Publish (an emailed code or link, and Google once it's switched on), the three-step add flow with ready-made objects, schedules, and Your drops with edit, pause and delete. The database enforces the rules. Phase 1's gate, a test on a mid-range phone, is still open too. Offers, uploads, reports and the review queue come in later phases.
+Phase 3, safety, has started: the review queue, reports, and photo and 3D model uploads are built. Rules on where drops can go and the legal pages have moved later in the plan. Phase 2, adding to the map, is built and waiting on its gate: sign-in (Google, or an emailed code or link), the three-step add flow with ready-made objects, schedules, and Your drops with edit, pause and delete. The database enforces the rules. Phase 1's gate, a test on a mid-range phone, is still open too. Offers, uploads, reports and the review queue come in later phases.
 
 | Phase | Delivers | Gate to move on |
 | --- | --- | --- |
@@ -49,6 +49,7 @@ Once per project, in Hololoco's own Supabase project:
    ```
 5. Email delivery: Supabase's built-in email only reaches members of the Supabase team. For anyone else, set up custom SMTP (Authentication → Emails → SMTP), or rely on Google.
 6. Google (optional): create a Web OAuth client in Google Cloud with the redirect URI `https://<project-ref>.supabase.co/auth/v1/callback`, add it under Authentication → Providers → Google, then set `NEXT_PUBLIC_GOOGLE_SIGN_IN=on`.
+7. The automatic check (off unless you turn it on): in the SQL editor, `select vault.create_secret('https://<project-ref>.supabase.co', 'project_url');` (where the database sends its calls). Deploy `supabase/functions/check-drop` with JWT verification off (`supabase functions deploy check-drop --no-verify-jwt`; it checks for itself). Under Edge Functions → Secrets, add `ANTHROPIC_API_KEY` and, optionally, `MAPBOX_TOKEN` (the public `pk.` token, so the check can see what's around each spot). Then `select private.set_automatic_check(true);` turns it on. Without the API key, everything it would look at goes to a person.
 
 Staff review drops at `/review` and skip review and limits themselves. Make someone staff in the SQL editor: `update public.profiles set is_staff = true where id = '<user id>';`.
 
@@ -73,6 +74,7 @@ Then list any new object in `lib/library/objects.ts`, and add it to the `library
 | Map | Mapbox GL JS, Standard style (faded theme), behind `lib/map/engine.ts` |
 | 3D models | GLB only, drawn by Mapbox's own model layer; three.js builds the library and processes uploads |
 | Place search | Mapbox Geocoding API v6 (addresses and places, not businesses) |
+| Automatic check | Claude Opus 5.5 through the Anthropic SDK, in a Supabase Edge Function (Deno) |
 
 ## How the map works
 
@@ -85,11 +87,23 @@ Then list any new object in `lib/library/objects.ts`, and add it to the `library
 ## How adding works
 
 - The start page asks people to sign in with Google or an emailed code. The email has a code to type, which keeps them in the same tab, and a link. The add flow's draft is saved in the browser as they go, so someone who starts it signed out can still sign in at Publish without losing it.
-- Publishing calls `save_drop` straight from the browser. The database decides everything: who owns what, the limits (10 drops at a time, 5 new a day, 20 public drops within 100 m, 30 m size, 100 m height), and review. Each account's drops stay in review until one has been approved. Its errors are short codes that `lib/drops/mine.ts` turns into plain words.
+- Publishing calls `save_drop` straight from the browser. The database decides everything: who owns what, the limits (10 drops at a time, 5 new a day, 20 public drops within 100 m, 30 m size, 100 m height), and review. Its errors are short codes that `lib/drops/mine.ts` turns into plain words.
+- Drops go live as soon as they're saved, with two exceptions that wait for a person: every photo and 3D model, and everything from an account under review. An account is under review while one of its drops has an open report (a complaint), and from its first strike on. Each drop a person takes down or doesn't approve is a strike; keeping a reported drop is not, and with no strikes the account goes back to normal. Three strikes suspend the account: its drops leave the map, and it can't add or change any, only delete them. Undoing a decision in `/review` takes its strike back. Lift a suspension in the SQL editor with `update public.profiles set strikes = 0 where id = '<user id>';`.
+- Offers say what people get, how many there are in all, how many each person can claim, and the terms. The business sets how rare the offer is: common, uncommon or rare. That decides how it looks in the app, how often people come across it, and which stage of a quest it can be in. Offers join quests only if the business ticks the box. `claimed` is for the app's claims later; owners can't write it.
 - Visitors can't read any table. Public drops come only from the `public_*` functions, which return approved, unpaused drops (and only those within their hours, for the map).
 - Property owners can ask for a removal at `/report`, with no account. The app will file reports through the same `file_report` function. A serious report (danger, or someone's personal information) hides the drop at once, and so do reports from three different people within a week; it goes back to review. Ten reports a day per person. People without an account are told apart by a keyed hash of their connection that changes weekly; their address isn't stored. Only staff can read reports.
 - Staff work through reports and the queue at `/review`: approve, or don't approve with a reason the owner sees in Your drops. Editing a drop that wasn't approved sends it back to the queue. Every decision goes into `moderation_events`, which the API can't change or delete, and can be undone from the list of recent decisions.
 - Sample drops show alongside real ones until `NEXT_PUBLIC_SAMPLE_DROPS=off`.
+
+## How the automatic check works (switched off)
+
+- It's built but off: people do every review for now. `select private.set_automatic_check(true);` turns it on (it needs `ANTHROPIC_API_KEY`), and `false` turns it off again, along with its retry job.
+- While it's on, it looks first at whatever would otherwise wait for a person: drops and changes from accounts under review, and photos and models (which it can't approve, only comment on). Staff drops skip it.
+- A trigger on `drops` asks the `check-drop` Edge Function (pg_net, after the save commits). The function claims the drop, looks up what's around the spot on Mapbox, and asks Claude (Opus 5.5, structured output) whether it can go live. It writes the answer back through `private.claim_check`, `private.finish_check` and `private.fail_check`, over the Edge Function's direct database connection; the API can't reach those functions, and only one call can claim a drop, so the function's public address is safe.
+- The check approves a drop or holds it for a person, saying why. It never turns anything down itself. It can't approve a drop whose photo or model a person hasn't approved, one with an open report, or one a person turned down before. Alcohol, tobacco, cannabis, gambling, weapons and adult content always go to a person, and so do sweepstakes and cash giveaways.
+- For offers it suggests a rarity, which the owner can take with one click in Your drops, and for any drop it can give a placement tip. Staff see its reasons and concerns in the review queue; owners see only its note to them.
+- While it's on, a job runs every minute (pg_cron, `private.retry_checks`): it sends again what nobody answered, retries failures, and after three attempts hands the drop to a person. Each account gets 40 checks a day; past that a person checks the rest. Every attempt, with what it said and the tokens it used, is in `drop_checks`. Automatic approvals go in the moderation log as "Automatic check".
+- The prompt and the answer's shape are in `supabase/functions/check-drop/check.ts`.
 
 ## How uploads work
 
@@ -121,6 +135,7 @@ lib/supabase/        Supabase clients for the browser and the server
 public/library/      generated GLB models and PNG thumbnails
 scripts/library/     the generators for public/library/
 supabase/migrations/ the schema and its rules
+supabase/functions/  check-drop, the automatic check (Deno, deployed to Supabase, not Vercel)
 supabase/tests/      permission tests, run against a project
 ```
 

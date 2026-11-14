@@ -91,7 +91,7 @@ begin
   v_id := public.save_drop(current_setting('t.drop')::jsonb);
   perform set_config('t.a1', v_id, false);
   select review into v_review from public.drops where id = v_id;
-  insert into perm_test.results (test, passed, detail) values ('a new account''s first drop goes to review', v_review = 'pending', v_review);
+  insert into perm_test.results (test, passed, detail) values ('a new account''s drops go live at once', v_review = 'approved', v_review);
 
   begin
     update public.drops set review = 'approved' where id = v_id;
@@ -154,18 +154,6 @@ end $$;
 reset role;
 select set_config('request.jwt.claims', '', false);
 
--- Unapproved drops stay off the public map and their page.
-set role anon;
-do $$ begin
-  insert into perm_test.results (test, passed, detail)
-  values ('drops in review are not public', public.public_drop(current_setting('t.a1')) is null, null);
-end $$;
-reset role;
-select set_config('request.jwt.claims', '', false);
-
--- A moderator approves it (as the SQL editor would).
-update public.drops set review = 'approved' where id = current_setting('t.a1');
-
 set role anon;
 do $$ begin
   insert into perm_test.results (test, passed, detail)
@@ -186,11 +174,13 @@ set role authenticated;
 select set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-4000-8000-000000000001","role":"authenticated"}', false);
 
 do $$
-declare v_id text; v_review text;
+declare v_id text; v_review text; v_check text;
 begin
   v_id := public.save_drop(current_setting('t.drop')::jsonb);
-  select review into v_review from public.drops where id = v_id;
-  insert into perm_test.results (test, passed, detail) values ('after one approval, new drops go live', v_review = 'approved', v_review);
+  select review, check_state into v_review, v_check from public.drops where id = v_id;
+  insert into perm_test.results (test, passed, detail)
+  values ('with the automatic check off, nothing waits for it', v_review = 'approved' and v_check is null,
+          v_review || ', ' || coalesce(v_check, 'no check'));
 
   update public.drops set paused = true where id = v_id;
   perform set_config('t.a_paused', v_id, false);
@@ -316,6 +306,9 @@ reset role;
 select set_config('request.jwt.claims', '', false);
 
 -- ===== Crowding: a spot that already has 20 public drops ==================
+-- D has a strike from earlier, so D's drops wait for a person.
+update public.profiles set strikes = 1 where id = 'dddddddd-0000-4000-8000-000000000004';
+
 insert into public.drops (owner_id, type, title, object_id, lat, lng, time_zone, review)
 select 'eeeeeeee-0000-4000-8000-000000000005', 'object', 'Crowd ' || i, 'heart',
        46.0 + i * 0.00001, -30.0, 'UTC', 'approved'
@@ -346,11 +339,12 @@ select set_config('request.jwt.claims', '', false);
 set role authenticated;
 select set_config('request.jwt.claims', '{"sub":"eeeeeeee-0000-4000-8000-000000000005","role":"authenticated"}', false);
 do $$
-declare v_id text; v_review text;
+declare v_id text; v_review text; v_check text;
 begin
   v_id := public.save_drop(jsonb_set(current_setting('t.drop')::jsonb, '{placement,lat}', '46.0003'));
-  select review into v_review from public.drops where id = v_id;
-  insert into perm_test.results (test, passed, detail) values ('staff drops skip limits and review', v_review = 'approved', v_review);
+  select review, check_state into v_review, v_check from public.drops where id = v_id;
+  insert into perm_test.results (test, passed, detail)
+  values ('staff drops skip limits, review and the check', v_review = 'approved' and v_check is null, v_review);
 exception when others then
   insert into perm_test.results (test, passed, detail) values ('staff drops skip limits and review', false, sqlerrm);
 end $$;
@@ -358,8 +352,7 @@ reset role;
 select set_config('request.jwt.claims', '', false);
 
 -- ===== The review queue ===================================================
--- D's link-only drop (t.d1) is D's first, so it's waiting for review.
-
+-- D's link-only drop (t.d1) waits for a person because of D's strike.
 set role authenticated;
 select set_config('request.jwt.claims', '{"sub":"dddddddd-0000-4000-8000-000000000004","role":"authenticated"}', false);
 do $$ begin
@@ -405,8 +398,10 @@ do $$
 declare v_json jsonb;
 begin
   insert into perm_test.results (test, passed, detail)
-  select 'staff see drops waiting for review',
-         exists (select 1 from public.review_queue() j where j ->> 'id' = current_setting('t.d1')), null;
+  select 'staff see drops waiting for review, with the owner''s strikes',
+         exists (select 1 from public.review_queue() j
+                 where j ->> 'id' = current_setting('t.d1') and (j ->> 'ownerStrikes')::int = 1
+                   and j ->> 'ownerStanding' = 'review'), null;
 
   begin
     perform public.review_drop(current_setting('t.d1'), 'reject');
@@ -462,6 +457,11 @@ begin
 end $$;
 reset role;
 select set_config('request.jwt.claims', '', false);
+
+insert into perm_test.results (test, passed, detail)
+values ('not approving a drop is a strike',
+        (select strikes from public.profiles where id = 'dddddddd-0000-4000-8000-000000000004') = 2,
+        (select strikes::text from public.profiles where id = 'dddddddd-0000-4000-8000-000000000004'));
 
 -- ===== Reports ============================================================
 -- Visitors report from a connection; set_config stands in for the address.
@@ -580,6 +580,15 @@ do $$ begin
   insert into perm_test.results (test, passed, detail)
   select 'owners see their drop is hidden for a report', (j ->> 'hiddenForReport')::boolean, j ->> 'hiddenForReport'
   from public.my_drops() j where j ->> 'id' = current_setting('t.a1');
+
+  insert into perm_test.results (test, passed, detail)
+  values ('owners see a complaint put their account under review',
+          public.my_standing() ->> 'standing' = 'review', public.my_standing()::text);
+
+  update public.drops set title = 'Changed after a complaint' where id = current_setting('t.a_over');
+  insert into perm_test.results (test, passed, detail)
+  values ('after a complaint, a person checks the account''s changes',
+          (select review from public.drops where id = current_setting('t.a_over')) = 'pending', null);
 end $$;
 reset role;
 select set_config('request.jwt.claims', '', false);
@@ -597,6 +606,18 @@ end $$;
 reset role;
 select set_config('request.jwt.claims', '', false);
 
+-- A complaint about one of B's drops, which staff will keep.
+select set_config('t.b_old', (select id from public.drops where owner_id = 'bbbbbbbb-0000-4000-8000-000000000002' order by id limit 1), false);
+set role anon;
+select set_config('request.headers', '{"x-forwarded-for":"10.0.0.5"}', false);
+select public.file_report(current_setting('t.b_old'), 'spam');
+reset role;
+select set_config('request.jwt.claims', '', false);
+select set_config('request.headers', '', false);
+insert into perm_test.results (test, passed, detail)
+values ('a complaint puts the account under review', public.account_standing('bbbbbbbb-0000-4000-8000-000000000002') = 'review',
+        public.account_standing('bbbbbbbb-0000-4000-8000-000000000002'));
+
 set role authenticated;
 select set_config('request.jwt.claims', '{"sub":"eeeeeeee-0000-4000-8000-000000000005","role":"authenticated"}', false);
 do $$
@@ -612,6 +633,7 @@ begin
 
   perform public.review_drop(current_setting('t.a1'), 'approve');
   perform public.review_drop(current_setting('t.a_open'), 'reject', 'It blocks a fire exit.');
+  perform public.review_drop(current_setting('t.b_old'), 'approve');
 
   select (j -> 'reports' -> 0 ->> 'id')::bigint into v_request
   from public.review_reports() j
@@ -633,6 +655,13 @@ insert into perm_test.results (test, passed, detail)
 select 'taking a drop down resolves its reports',
        (select count(*) from public.reports where drop_id = current_setting('t.a_open') and status = 'resolved') = 1
        and (select review from public.drops where id = current_setting('t.a_open')) = 'rejected', null;
+insert into perm_test.results (test, passed, detail)
+values ('taking a drop down is a strike, and the account stays under review',
+        (select strikes from public.profiles where id = 'aaaaaaaa-0000-4000-8000-000000000001') = 1 and public.account_standing('aaaaaaaa-0000-4000-8000-000000000001') = 'review',
+        public.account_standing('aaaaaaaa-0000-4000-8000-000000000001'));
+insert into perm_test.results (test, passed, detail)
+values ('keeping a reported drop returns its account to good standing', public.account_standing('bbbbbbbb-0000-4000-8000-000000000002') = 'good',
+        public.account_standing('bbbbbbbb-0000-4000-8000-000000000002'));
 
 -- ===== Uploads ============================================================
 -- F already has an approved drop, so ready-made objects would go live at once.
@@ -825,10 +854,369 @@ end $$;
 reset role;
 select set_config('request.jwt.claims', '', false);
 
+-- ===== Offers =============================================================
+-- G is a business with no drops yet.
+
+insert into auth.users (id, aud, role, email) values
+  ('abababab-0000-4000-8000-000000000007', 'authenticated', 'authenticated', 'g@example.invalid');
+update public.profiles set display_name = 'Test Bakery', adult_confirmed_at = now() where id = 'abababab-0000-4000-8000-000000000007';
+select set_config('t.offer', jsonb_set(jsonb_set(jsonb_set(current_setting('t.drop')::jsonb,
+  '{type}', '"offer"'), '{placement,lat}', '48.0'),
+  '{offer}', '{"savings": "Buy one, get one free", "terms": "Pastries only.", "quantity": 50, "perPerson": 1,
+               "rarity": "rare", "inQuests": true}')::text, false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"abababab-0000-4000-8000-000000000007","role":"authenticated"}', false);
+do $$
+declare v_id text; v_json jsonb;
+begin
+  begin
+    perform public.save_drop(current_setting('t.offer')::jsonb - 'offer');
+    insert into perm_test.results (test, passed, detail) values ('an offer has to say what people get', false, 'save worked');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('an offer has to say what people get', sqlerrm = 'offer_incomplete', sqlerrm);
+  end;
+
+  v_id := public.save_drop(current_setting('t.offer')::jsonb);
+  perform set_config('t.g1', v_id, false);
+  select j into v_json from public.my_drops() j where j ->> 'id' = v_id;
+  insert into perm_test.results (test, passed, detail)
+  values ('offers go live with their rarity and quests choice',
+          v_json -> 'offer' ->> 'savings' = 'Buy one, get one free' and v_json -> 'offer' ->> 'rarity' = 'rare'
+          and (v_json -> 'offer' ->> 'inQuests')::boolean and (v_json -> 'offer' ->> 'remaining')::int = 50
+          and v_json ->> 'review' = 'approved' and v_json -> 'check' = 'null'::jsonb, v_json::text);
+
+  begin
+    update public.drops set check_state = 'done' where id = v_id;
+    insert into perm_test.results (test, passed, detail) values ('owners cannot change a check', false, 'update worked');
+  exception when insufficient_privilege then
+    insert into perm_test.results (test, passed, detail) values ('owners cannot change a check', true, sqlerrm);
+  end;
+
+  begin
+    update public.offers set claimed = 49 where drop_id = v_id;
+    insert into perm_test.results (test, passed, detail) values ('owners cannot set how many were claimed', false, 'update worked');
+  exception when insufficient_privilege then
+    insert into perm_test.results (test, passed, detail) values ('owners cannot set how many were claimed', true, sqlerrm);
+  end;
+
+  begin
+    update public.profiles set strikes = 0 where id = 'abababab-0000-4000-8000-000000000007';
+    insert into perm_test.results (test, passed, detail) values ('people cannot clear their own strikes', false, 'update worked');
+  exception when insufficient_privilege then
+    insert into perm_test.results (test, passed, detail) values ('people cannot clear their own strikes', true, sqlerrm);
+  end;
+
+  begin
+    perform 1 from public.drop_checks limit 1;
+    insert into perm_test.results (test, passed, detail) values ('people cannot read the checks', false, 'select worked');
+  exception when insufficient_privilege then
+    insert into perm_test.results (test, passed, detail) values ('people cannot read the checks', true, sqlerrm);
+  end;
+
+  begin
+    perform private.finish_check(1, '{"decision": "approve"}');
+    insert into perm_test.results (test, passed, detail) values ('people cannot record a check', false, 'call worked');
+  exception when insufficient_privilege then
+    insert into perm_test.results (test, passed, detail) values ('people cannot record a check', true, sqlerrm);
+  end;
+
+  update public.offers set in_quests = false, quantity = 40, rarity = 'uncommon' where drop_id = v_id;
+  insert into perm_test.results (test, passed, detail)
+  values ('in good standing, changing an offer stays live',
+          (select review from public.drops where id = v_id) = 'approved', null);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+-- B can't read or change G's offer.
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"bbbbbbbb-0000-4000-8000-000000000002","role":"authenticated"}', false);
+do $$
+declare v_count int;
+begin
+  update public.offers set savings = 'Everything free' where drop_id = current_setting('t.g1');
+  get diagnostics v_count = row_count;
+  insert into perm_test.results (test, passed, detail)
+  values ('people cannot read or change others'' offers',
+          v_count = 0 and (select count(*) from public.offers where drop_id = current_setting('t.g1')) = 0, v_count::text);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role anon;
+do $$
+declare v_json jsonb;
+begin
+  v_json := public.public_drop(current_setting('t.g1'));
+  insert into perm_test.results (test, passed, detail)
+  values ('visitors see an offer''s public fields',
+          v_json -> 'offer' ->> 'rarity' = 'uncommon' and (v_json -> 'offer' ->> 'remaining')::int = 40
+          and v_json -> 'offer' -> 'claimed' is null and v_json -> 'check' is null, (v_json -> 'offer')::text);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+-- ===== The automatic check, switched on for these tests ===================
+-- G has a strike, so G's changes wait for a person, and the check looks first.
+
+select private.set_automatic_check(true);
+update public.profiles set strikes = 1 where id = 'abababab-0000-4000-8000-000000000007';
+insert into perm_test.results (test, passed, detail)
+values ('switching the check on schedules its retry job',
+        exists (select 1 from cron.job where jobname = 'retry-drop-checks'), null);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"abababab-0000-4000-8000-000000000007","role":"authenticated"}', false);
+do $$ begin
+  update public.offers set savings = 'Buy one pastry, get one free' where drop_id = current_setting('t.g1');
+  insert into perm_test.results (test, passed, detail)
+  values ('with the check on, what would wait for a person goes to it first',
+          (select review = 'pending' and check_state = 'queued' from public.drops where id = current_setting('t.g1')), null);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+do $$
+declare v_ctx jsonb; v_outcome text;
+begin
+  v_ctx := private.claim_check(current_setting('t.g1'));
+  insert into perm_test.results (test, passed, detail)
+  values ('the check sees the offer and its owner''s record',
+          v_ctx -> 'drop' -> 'offer' ->> 'savings' = 'Buy one pastry, get one free'
+          and (v_ctx -> 'owner' ->> 'approvedDrops')::int = 0, left(v_ctx::text, 200));
+  insert into perm_test.results (test, passed, detail)
+  values ('only one call can claim a check', private.claim_check(current_setting('t.g1')) is null, null);
+  v_outcome := private.finish_check((v_ctx ->> 'runId')::bigint, '{"decision": "approve", "suggestedRarity": "common",
+    "rarityReason": "A free pastry is worth a few dollars.", "placementTip": "Put it by the door.",
+    "reason": "Fine.", "concerns": [], "ownerNote": "Looks good."}');
+  insert into perm_test.results (test, passed, detail)
+  values ('the check approves an offer',
+          v_outcome = 'approve' and (select review from public.drops where id = current_setting('t.g1')) = 'approved', v_outcome);
+  insert into perm_test.results (test, passed, detail)
+  values ('automatic approvals are logged',
+          exists (select 1 from public.moderation_events
+                  where drop_id = current_setting('t.g1') and action = 'approve' and automatic and actor_id is null), null);
+end $$;
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"abababab-0000-4000-8000-000000000007","role":"authenticated"}', false);
+do $$
+declare v_json jsonb;
+begin
+  select j into v_json from public.my_drops() j where j ->> 'id' = current_setting('t.g1');
+  insert into perm_test.results (test, passed, detail)
+  values ('owners see the check''s suggestions, not its notes for staff',
+          v_json -> 'check' ->> 'suggestedRarity' = 'common' and v_json -> 'check' ->> 'placementTip' = 'Put it by the door.'
+          and v_json -> 'check' -> 'reason' is null and v_json -> 'check' -> 'concerns' is null, (v_json -> 'check')::text);
+
+  update public.offers set rarity = 'rare' where drop_id = current_setting('t.g1');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+-- A person turns it down while the check is running; the check's late answer changes nothing.
+select set_config('t.g1_run', (private.claim_check(current_setting('t.g1')) ->> 'runId'), false);
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"eeeeeeee-0000-4000-8000-000000000005","role":"authenticated"}', false);
+do $$ begin
+  perform public.review_drop(current_setting('t.g1'), 'reject', 'It''s spam.');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+select set_config('t.g1_late', private.finish_check(current_setting('t.g1_run')::bigint, '{"decision": "approve"}'), false);
+insert into perm_test.results (test, passed, detail)
+values ('a late check can''t undo a person''s decision',
+        current_setting('t.g1_late') = 'ignored'
+        and (select review from public.drops where id = current_setting('t.g1')) = 'rejected', current_setting('t.g1_late'));
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"abababab-0000-4000-8000-000000000007","role":"authenticated"}', false);
+do $$ begin
+  perform public.save_drop(jsonb_set(jsonb_set(current_setting('t.offer')::jsonb, '{id}', to_jsonb(current_setting('t.g1'))),
+                                     '{title}', '"Fixed offer"'));
+  perform set_config('t.g2', public.save_drop(jsonb_set(jsonb_set(current_setting('t.drop')::jsonb,
+    '{type}', '"message"'), '{placement,lat}', '48.001')), false);
+  perform set_config('t.g3', public.save_drop(jsonb_set(jsonb_set(current_setting('t.drop')::jsonb,
+    '{type}', '"message"'), '{placement,lat}', '48.002')), false);
+  perform set_config('t.g4', public.save_drop(jsonb_set(jsonb_set(current_setting('t.drop')::jsonb,
+    '{type}', '"message"'), '{placement,lat}', '48.003')), false);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+do $$
+declare v_ctx jsonb; v_outcome text;
+begin
+  v_ctx := private.claim_check(current_setting('t.g1'));
+  v_outcome := private.finish_check((v_ctx ->> 'runId')::bigint, '{"decision": "approve"}');
+  insert into perm_test.results (test, passed, detail)
+  values ('the check can''t approve what a person turned down',
+          (v_ctx ->> 'turnedDownByAPersonBefore')::boolean and v_outcome = 'hold'
+          and (select review from public.drops where id = current_setting('t.g1')) = 'pending', v_outcome);
+
+  v_ctx := private.claim_check(current_setting('t.g2'));
+  perform private.fail_check((v_ctx ->> 'runId')::bigint, 'Test failure');
+  insert into perm_test.results (test, passed, detail)
+  values ('a failed check is tried again', (select check_state from public.drops where id = current_setting('t.g2')) = 'retry', null);
+
+  perform set_config('hololoco.system', 'on', true);
+  update public.drops set check_at = now() - interval '2 minutes' where id = current_setting('t.g2');
+  perform set_config('hololoco.system', '', true);
+  perform private.retry_checks();
+  insert into perm_test.results (test, passed, detail)
+  values ('the retry job queues it again', (select check_state from public.drops where id = current_setting('t.g2')) = 'queued', null);
+
+  v_ctx := private.claim_check(current_setting('t.g2'));
+  perform private.fail_check((v_ctx ->> 'runId')::bigint, 'not_configured', true);
+
+  -- Nothing ever claims G's fourth drop, as if the Edge Function couldn't be reached.
+  for i in 1..4 loop
+    perform set_config('hololoco.system', 'on', true);
+    update public.drops set check_at = now() - interval '3 minutes' where id = current_setting('t.g4');
+    perform set_config('hololoco.system', '', true);
+    perform private.retry_checks();
+  end loop;
+  insert into perm_test.results (test, passed, detail)
+  values ('a check nobody answers ends with a person',
+          (select check_state from public.drops where id = current_setting('t.g4')) = 'failed',
+          (select check_state from public.drops where id = current_setting('t.g4')));
+
+  insert into public.drop_checks (drop_id, owner_id, status)
+  select 'x', 'abababab-0000-4000-8000-000000000007', 'done' from generate_series(1, 40);
+  v_ctx := private.claim_check(current_setting('t.g3'));
+  insert into perm_test.results (test, passed, detail)
+  values ('forty checks a day per account at most',
+          v_ctx is null and (select check_state from public.drops where id = current_setting('t.g3')) = 'failed', null);
+end $$;
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"eeeeeeee-0000-4000-8000-000000000005","role":"authenticated"}', false);
+do $$ begin
+  insert into perm_test.results (test, passed, detail)
+  select 'a check that can''t run hands the drop to a person',
+         exists (select 1 from public.review_queue() j
+                 where j ->> 'id' = current_setting('t.g2') and j -> 'check' ->> 'error' = 'not_configured'), null;
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+select private.set_automatic_check(false);
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"abababab-0000-4000-8000-000000000007","role":"authenticated"}', false);
+do $$
+declare v_id text;
+begin
+  v_id := public.save_drop(jsonb_set(jsonb_set(current_setting('t.drop')::jsonb,
+    '{type}', '"message"'), '{placement,lat}', '48.004'));
+  perform set_config('t.g5', v_id, false);
+  insert into perm_test.results (test, passed, detail)
+  values ('with the check off, it waits for a person instead',
+          (select review = 'pending' and check_state is null from public.drops where id = v_id), null);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+insert into perm_test.results (test, passed, detail)
+values ('switching the check off stops its retry job',
+        not exists (select 1 from cron.job where jobname = 'retry-drop-checks'), null);
+
+-- ===== Three strikes ======================================================
+-- H has a live drop and two strikes from earlier.
+
+insert into auth.users (id, aud, role, email) values
+  ('cdcdcdcd-0000-4000-8000-000000000008', 'authenticated', 'authenticated', 'h@example.invalid');
+update public.profiles set display_name = 'Test Shop', adult_confirmed_at = now() where id = 'cdcdcdcd-0000-4000-8000-000000000008';
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"cdcdcdcd-0000-4000-8000-000000000008","role":"authenticated"}', false);
+do $$ begin
+  perform set_config('t.h1', public.save_drop(jsonb_set(current_setting('t.drop')::jsonb, '{placement,lat}', '49.0')), false);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+update public.profiles set strikes = 2 where id = 'cdcdcdcd-0000-4000-8000-000000000008';
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"cdcdcdcd-0000-4000-8000-000000000008","role":"authenticated"}', false);
+do $$
+declare v_id text;
+begin
+  v_id := public.save_drop(jsonb_set(current_setting('t.drop')::jsonb, '{placement,lat}', '49.001'));
+  perform set_config('t.h2', v_id, false);
+  insert into perm_test.results (test, passed, detail)
+  values ('an account with a strike waits for a person', (select review from public.drops where id = v_id) = 'pending', null);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role anon;
+do $$ begin
+  insert into perm_test.results (test, passed, detail)
+  values ('drops waiting for a person are not public', public.public_drop(current_setting('t.h2')) is null, null);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"eeeeeeee-0000-4000-8000-000000000005","role":"authenticated"}', false);
+do $$ begin
+  perform public.review_drop(current_setting('t.h2'), 'reject', 'It''s spam.');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+insert into perm_test.results (test, passed, detail)
+values ('three strikes suspend the account', public.account_standing('cdcdcdcd-0000-4000-8000-000000000008') = 'suspended', public.account_standing('cdcdcdcd-0000-4000-8000-000000000008'));
+
+set role anon;
+do $$ begin
+  insert into perm_test.results (test, passed, detail)
+  values ('a suspended account''s drops leave the map',
+          public.public_drop(current_setting('t.h1')) is null
+          and not exists (select 1 from public.public_drops_in_bounds(-30.01, 48.99, -29.99, 49.01) j
+                          where j ->> 'id' = current_setting('t.h1')), null);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"cdcdcdcd-0000-4000-8000-000000000008","role":"authenticated"}', false);
+do $$ begin
+  insert into perm_test.results (test, passed, detail)
+  values ('owners see their account is suspended', public.my_standing() ->> 'standing' = 'suspended', public.my_standing()::text);
+  begin
+    perform public.save_drop(jsonb_set(current_setting('t.drop')::jsonb, '{placement,lat}', '49.002'));
+    insert into perm_test.results (test, passed, detail) values ('suspended accounts cannot add drops', false, 'save worked');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('suspended accounts cannot add drops', sqlerrm = 'account_suspended', sqlerrm);
+  end;
+  begin
+    update public.drops set paused = true where id = current_setting('t.h1');
+    insert into perm_test.results (test, passed, detail) values ('suspended accounts cannot change drops', false, 'update worked');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('suspended accounts cannot change drops', sqlerrm = 'account_suspended', sqlerrm);
+  end;
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"eeeeeeee-0000-4000-8000-000000000005","role":"authenticated"}', false);
+do $$ begin
+  perform public.review_drop(current_setting('t.h2'), 'reopen');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+insert into perm_test.results (test, passed, detail)
+values ('undoing a decision takes its strike back',
+        (select strikes from public.profiles where id = 'cdcdcdcd-0000-4000-8000-000000000008') = 2 and public.account_standing('cdcdcdcd-0000-4000-8000-000000000008') = 'review'
+        and public.public_drop(current_setting('t.h1')) is not null, null);
+
 -- A test whose check finds no row records nothing, so make sure none went missing.
 -- Update this number when adding or removing a test.
 insert into perm_test.results (test, passed, detail)
-select 'every test recorded a result', count(*) = 86, count(*)::text || ' of 86'
+select 'every test recorded a result', count(*) = 125, count(*)::text || ' of 125'
 from perm_test.results;
 
 -- ===== Clean up, then show the results ====================================
@@ -837,11 +1225,15 @@ create temp table perm_test_results as select * from perm_test.results;
 delete from auth.users where id in (
   'aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000002',
   'cccccccc-0000-4000-8000-000000000003', 'dddddddd-0000-4000-8000-000000000004',
-  'eeeeeeee-0000-4000-8000-000000000005', 'ffffffff-0000-4000-8000-000000000006');
+  'eeeeeeee-0000-4000-8000-000000000005', 'ffffffff-0000-4000-8000-000000000006',
+  'abababab-0000-4000-8000-000000000007', 'cdcdcdcd-0000-4000-8000-000000000008');
 delete from public.moderation_events
-where drop_id in (current_setting('t.d1'), current_setting('t.a1'), current_setting('t.a_open'), current_setting('t.f1'));
+where drop_id in (current_setting('t.d1'), current_setting('t.a1'), current_setting('t.a_open'), current_setting('t.f1'),
+                  current_setting('t.a_paused'), current_setting('t.a_link'), current_setting('t.a_over'),
+                  current_setting('t.g1'), current_setting('t.g2'), current_setting('t.g3'), current_setting('t.g4'),
+                  current_setting('t.g5'), current_setting('t.h1'), current_setting('t.h2'), current_setting('t.b_old'));
 delete from public.reports
-where drop_id in (current_setting('t.a1'), current_setting('t.a_open'))
+where drop_id in (current_setting('t.a1'), current_setting('t.a_open'), current_setting('t.b_old'))
    or (drop_id is null and contact = 'owner@example.invalid');
 drop schema perm_test cascade;
 

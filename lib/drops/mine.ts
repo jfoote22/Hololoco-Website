@@ -5,7 +5,7 @@
 import { browserClient } from "@/lib/supabase/browser";
 import { myDropFromJson, type DropJson } from "./json";
 import { limits } from "./limits";
-import type { DropInput, MyDrop, Review } from "./types";
+import type { DropInput, MyDrop, Rarity, Review } from "./types";
 
 export type Profile = { displayName: string | null; adultConfirmed: boolean; isStaff: boolean };
 
@@ -25,6 +25,9 @@ export function errorText(error: DbError): string {
   if (message.includes("limit_crowded"))
     return `This spot already has ${limits.crowdingMaxDrops} drops within ${limits.crowdingRadiusMetres} m. Try somewhere a little further away.`;
   if (message.includes("schedule_empty")) return "Add at least one set of hours, or choose Always.";
+  if (message.includes("offer_incomplete")) return "Say what people get with the offer.";
+  if (message.includes("account_suspended"))
+    return "Your account is suspended, so you can't add or change drops.";
   if (message.includes("ends_after_start") || message.includes("once_ends_after_start"))
     return "The end has to be after the start.";
   if (message.includes("not_found")) return "That drop isn't one of yours, or it's been deleted.";
@@ -68,6 +71,20 @@ export async function saveProfile(userId: string, displayName: string): Promise<
   return error ? errorText(error) : null;
 }
 
+/**
+ * good: drops go live at once. review: a complaint is open or a drop was taken
+ * down, so new drops and changes wait for a person. suspended: three strikes.
+ */
+export type Standing = { standing: "good" | "review" | "suspended"; strikes: number };
+
+export async function getStanding(): Promise<Standing | null> {
+  const client = browserClient();
+  if (!client) return null;
+  const { data, error } = await client.rpc("my_standing");
+  if (error || !data) return null;
+  return data as Standing;
+}
+
 export async function listMyDrops(): Promise<MyDrop[]> {
   const client = browserClient();
   if (!client) return [];
@@ -83,6 +100,14 @@ export async function saveDrop(input: DropInput): Promise<{ id: string; review: 
   if (error || typeof id !== "string") return { error: errorText(error) };
   const { data } = await client.from("drops").select("review").eq("id", id).maybeSingle();
   return { id, review: (data?.review as Review | undefined) ?? "pending" };
+}
+
+/** Changes how rare an offer is. The database sends it back for the automatic check. */
+export async function setRarity(id: string, rarity: Rarity): Promise<string | null> {
+  const client = browserClient();
+  if (!client) return NOT_SET_UP;
+  const { error } = await client.from("offers").update({ rarity }).eq("drop_id", id);
+  return error ? errorText(error) : null;
 }
 
 export async function setPaused(id: string, paused: boolean): Promise<string | null> {

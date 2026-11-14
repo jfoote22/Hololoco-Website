@@ -12,6 +12,10 @@ export type QueueItem = MyDrop & {
   ownerApproved: number;
   ownerRejected: number;
   ownerSince: string | null;
+  /** Drops a person took down or didn't approve. Three suspend the account. */
+  ownerStrikes: number;
+  /** review: a complaint is open or it has a strike. */
+  ownerStanding: "good" | "review" | "suspended";
 };
 
 export type Decision = "approve" | "reject" | "reopen";
@@ -28,7 +32,7 @@ export type ReportEntry = {
 
 /** A reported drop with its open reports, or a request that isn't about a drop on the map. */
 export type ReportItem =
-  | { kind: "drop"; drop: MyDrop; hidden: boolean; reports: ReportEntry[] }
+  | { kind: "drop"; drop: MyDrop; hidden: boolean; ownerStrikes: number; reports: ReportEntry[] }
   | { kind: "request"; drop: null; dropTitle: string | null; reports: ReportEntry[] };
 
 export type HistoryItem = {
@@ -43,7 +47,13 @@ export type HistoryItem = {
   review: MyDrop["review"] | null;
 };
 
-type QueueJson = DropJson & { ownerApproved: number; ownerRejected: number; ownerSince: string | null };
+type QueueJson = DropJson & {
+  ownerApproved: number;
+  ownerRejected: number;
+  ownerSince: string | null;
+  ownerStrikes: number;
+  ownerStanding: QueueItem["ownerStanding"];
+};
 
 /** Rejection reasons a reviewer can pick. The owner sees the one chosen. */
 export const REJECT_REASONS = [
@@ -63,6 +73,8 @@ export async function listQueue(): Promise<QueueItem[]> {
     ownerApproved: j.ownerApproved,
     ownerRejected: j.ownerRejected,
     ownerSince: j.ownerSince,
+    ownerStrikes: j.ownerStrikes ?? 0,
+    ownerStanding: j.ownerStanding ?? "good",
   }));
 }
 
@@ -75,7 +87,7 @@ export async function listHistory(): Promise<HistoryItem[]> {
 }
 
 type ReportJson =
-  | { kind: "drop"; drop: DropJson; hidden: boolean; reports: ReportEntry[] }
+  | { kind: "drop"; drop: DropJson; hidden: boolean; ownerStrikes?: number; reports: ReportEntry[] }
   | { kind: "request"; drop: null; dropTitle: string | null; reports: ReportEntry[] };
 
 export async function listReports(): Promise<ReportItem[]> {
@@ -84,7 +96,7 @@ export async function listReports(): Promise<ReportItem[]> {
   const { data, error } = await client.rpc("review_reports");
   if (error) throw new Error(errorText(error));
   return ((data ?? []) as ReportJson[]).map((j) =>
-    j.kind === "drop" ? { ...j, drop: myDropFromJson(j.drop) } : j,
+    j.kind === "drop" ? { ...j, drop: myDropFromJson(j.drop), ownerStrikes: j.ownerStrikes ?? 0 } : j,
   );
 }
 
@@ -101,6 +113,13 @@ export async function decide(dropId: string, decision: Decision, reason?: string
   if (!client) return errorText(null);
   const { error } = await client.rpc("review_drop", { drop_id: dropId, decision, reason: reason ?? null });
   return error ? errorText(error) : null;
+}
+
+/** What not approving (or taking down) one more of an owner's drops means, for the reviewer. */
+export function strikeNote(strikes: number): string {
+  const next = strikes + 1;
+  if (next >= 3) return "This is their third strike: their account will be suspended and all their drops leave the map.";
+  return `This counts as a strike (${next} of 3). At three, their account is suspended.`;
 }
 
 /** "5 minutes ago", "3 hours ago", "2 days ago". */

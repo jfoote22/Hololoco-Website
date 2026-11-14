@@ -38,12 +38,13 @@ const drops: PublicDrop[] = [
     audience: "everyone",
     status: "live",
     offer: {
-      dropId: "k7p2m9qa",
-      savings: "$3",
+      savings: "$3 off any large pie",
       quantity: 150,
       remaining: 150,
       perPersonLimit: 1,
       terms: "One per person. Luigi's Slice honours this offer, not Hololoco.",
+      rarity: "common",
+      inQuests: true,
     },
   },
   {
@@ -60,12 +61,13 @@ const drops: PublicDrop[] = [
     audience: "everyone",
     status: "live",
     offer: {
-      dropId: "c4x8n2rt",
-      savings: "a free pastry",
+      savings: "A free pastry with any coffee",
       quantity: 40,
       remaining: 31,
       perPersonLimit: 1,
       terms: "One per person. Morning Crumb Bakery honours this offer, not Hololoco.",
+      rarity: "uncommon",
+      inQuests: true,
     },
   },
   {
@@ -82,12 +84,13 @@ const drops: PublicDrop[] = [
     audience: "everyone",
     status: "live",
     offer: {
-      dropId: "s9v3h6wd",
-      savings: "$50",
+      savings: "$50 off trail shoes",
       quantity: 5,
       remaining: 5,
       perPersonLimit: 1,
       terms: "One per person. Stride Running Co. honours this offer, not Hololoco.",
+      rarity: "rare",
+      inQuests: true,
     },
   },
   {

@@ -1582,6 +1582,8 @@ end $$;
 reset role;
 select set_config('request.jwt.claims', '', false);
 
+-- Supabase refuses direct deletes from storage unless this is on.
+select set_config('storage.allow_delete_query', 'true', false);
 delete from storage.objects
 where bucket_id = 'drop-assets'
   and name in ('c2c2c2c2-0000-4000-8000-0000000000c2/model.glb', 'c2c2c2c2-0000-4000-8000-0000000000c2/thumbnail.png',
@@ -2191,8 +2193,12 @@ where exists (select 1 from public.quest_stages s join public.drops d on d.id = 
               where s.quest_id = q.id
                 and d.owner_id in ('f1f1f1f1-0000-4000-8000-000000000031', 'f4f4f4f4-0000-4000-8000-000000000034',
                                    'f5f5f5f5-0000-4000-8000-000000000035'));
+-- Supabase refuses direct deletes from storage unless this is on.
+select set_config('storage.allow_delete_query', 'true', false);
 delete from storage.objects
 where bucket_id = 'uploads' and name like 'f1f1f1f1-0000-4000-8000-000000000031/%';
+
+select set_config('storage.allow_delete_query', 'false', false);
 
 -- A test whose check finds no row records nothing, so make sure none went missing.
 -- Update this number when adding or removing a test.

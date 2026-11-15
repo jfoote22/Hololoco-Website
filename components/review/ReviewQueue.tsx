@@ -4,6 +4,7 @@
 // Approve or keep, or don't approve / take down with a reason the owner sees.
 // Every decision is logged and can be undone.
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { SignIn } from "@/components/auth/SignIn";
 import { useSession } from "@/components/auth/session";
@@ -201,6 +202,10 @@ export function ReviewQueue() {
           suspend an account.
         </p>
       </div>
+
+      <Link href="/quests" className={`${textButton} self-start`}>
+        See all quests
+      </Link>
 
       {session.status === "loading" && <p className="text-sm text-muted">Loading…</p>}
       {session.status === "signed-out" && <SignIn next="/review" lead="Sign in with a staff account." />}

@@ -6,7 +6,7 @@ This repository is the website at hololoco.com. It replaces the 2021 portal and 
 
 ## Status
 
-The website became the business side on 2026-11-14: the start page asks people to sign in, and the public browsing (type filters, the nearby list, drop pages, View in AR) moved to the app. The same day, offers arrived, with a rarity the business sets (common, uncommon or rare) and a choice to be part of quests. Drops now go live at once; a complaint puts an account's drops in front of a person, and three strikes suspend it. An automatic check by Claude is built but switched off. Next comes the quest builder; see the design doc's "Quests" section.
+The website became the business side on 2026-11-14: the start page asks people to sign in, and the public browsing (type filters, the nearby list, drop pages, View in AR) moved to the app. The same day, offers arrived, with a rarity the business sets (common, uncommon or rare) and a choice to be part of quests. Drops now go live at once; a complaint puts an account's drops in front of a person, and three strikes suspend it. An automatic check by Claude is built but switched off. The quest builder followed: the database links opted-in offers from nearby businesses into quests by itself. Next comes the Unity app, which reads them; see the design doc's "Quests" section.
 
 Phase 3, safety, has started: the review queue, reports, and photo and 3D model uploads are built. Rules on where drops can go and the legal pages have moved later in the plan. Phase 2, adding to the map, is built and waiting on its gate: sign-in (Google, or an emailed code or link), the three-step add flow with ready-made objects, schedules, and Your drops with edit, pause and delete. The database enforces the rules. Phase 1's gate, a test on a mid-range phone, is still open too. Offers, uploads, reports and the review queue come in later phases.
 
@@ -95,6 +95,16 @@ Then list any new object in `lib/library/objects.ts`, and add it to the `library
 - Staff work through reports and the queue at `/review`: approve, or don't approve with a reason the owner sees in Your drops. Editing a drop that wasn't approved sends it back to the queue. Every decision goes into `moderation_events`, which the API can't change or delete, and can be undone from the list of recent decisions.
 - Sample drops show alongside real ones until `NEXT_PUBLIC_SAMPLE_DROPS=off`.
 
+## How quests work
+
+- A quest chains offers from different businesses into stages: a common offer first, one or two uncommon ones, and a rare one last (3 or 4 stages). The database builds them by itself every 15 minutes (pg_cron job `build-quests`, `private.refresh_quests`), from offers whose businesses ticked "Let it be part of quests".
+- Every stage is live, in stock and from a different business, and the stages are open together at least 4 hours a week, in one time zone. One-time offers don't join. Each leg is at most a 20-minute walk (1.6 km); where businesses are spread out, as in rural areas, legs can stretch to 5 km and then 15 km. An offer is in one quest at a time.
+- The builder starts from each rare offer, the scarcest, and works back: the nearest uncommon offer, perhaps a second one before it, and the nearest common offer to start from. A quest is named after its first and last business.
+- A quest stays as built until a stage drops out (paused, sold out, taken down, out of quests, a different rarity, moved too far, or its hours no longer overlap). Then it's retired with the reason, and its other offers can join a new one. A stage taken down disappears from the public quest at once, before the next rebuild.
+- The app reads quests through `public_quests_in_bounds` and `public_quest` (any visitor). Each quest has its stages in order with their drops, `openHours` (168 characters, one per hour of the week from Sunday midnight, `1` when every stage is open) and `openNow`. Retired quests stay readable for players part-way through.
+- Businesses see "Stage 2 of 4 in a quest" in Your drops, with the other stages and the route on the map. Staff see every quest, and those retired this week with why, at `/quests`, and can build quests at once.
+- Capturing stages, the inventory and redeeming belong to the app.
+
 ## How the automatic check works (switched off)
 
 - It's built but off: people do every review for now. `select private.set_automatic_check(true);` turns it on (it needs `ANTHROPIC_API_KEY`), and `false` turns it off again, along with its retry job.
@@ -115,7 +125,7 @@ Then list any new object in `lib/library/objects.ts`, and add it to the `library
 ## Layout
 
 ```
-app/                 screens: start page (/), add, business, report, review, legal; /mine redirects to /
+app/                 screens: start page (/), add, business, report, review, quests, legal; /mine redirects to /
 app/auth/confirm/    where sign-in links and Google sign-in land
 components/          panel (bottom sheet on phones), map view, place search
 components/add/      the add flow and its draft
@@ -123,12 +133,14 @@ components/auth/     sign-in and who is signed in
 components/mine/     the start page: a welcome with sign-in, then Your drops
 components/report/   the report and removal-request form
 components/review/   the staff review queue and reports
+components/quests/   the staff list of quests
 components/map/      shared map state, and helpers pages use to focus a drop or size the sheet
 lib/map/             MapEngine interface, the Mapbox adapter, place search
 lib/drops/           drop types, limits, wording, sample drops, nearby drops, your own drops
 lib/library/         the ready-made object list
 lib/upload/          turning photos and GLB/FBX models into small GLBs in the browser, and uploading them
 lib/assets.ts        where uploaded files live, and signed links to private ones
+lib/quests.ts        reading quests, and their routes and hours in words
 lib/reports.ts       filing a report
 lib/review.ts        staff calls for the review queue and reports
 lib/supabase/        Supabase clients for the browser and the server

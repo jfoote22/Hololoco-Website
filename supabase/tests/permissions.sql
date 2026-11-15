@@ -1213,10 +1213,226 @@ values ('undoing a decision takes its strike back',
         (select strikes from public.profiles where id = 'cdcdcdcd-0000-4000-8000-000000000008') = 2 and public.account_standing('cdcdcdcd-0000-4000-8000-000000000008') = 'review'
         and public.public_drop(current_setting('t.h1')) is not null, null);
 
+-- ===== Quests =============================================================
+-- Five businesses with groups of opted-in offers, each group a degree of
+-- latitude from the next. Offers are made here as the database owner.
+
+insert into auth.users (id, aud, role, email) values
+  ('a1a1a1a1-0000-4000-8000-000000000011', 'authenticated', 'authenticated', 'q1@example.invalid'),
+  ('a2a2a2a2-0000-4000-8000-000000000012', 'authenticated', 'authenticated', 'q2@example.invalid'),
+  ('a3a3a3a3-0000-4000-8000-000000000013', 'authenticated', 'authenticated', 'q3@example.invalid'),
+  ('a4a4a4a4-0000-4000-8000-000000000014', 'authenticated', 'authenticated', 'q4@example.invalid'),
+  ('a5a5a5a5-0000-4000-8000-000000000015', 'authenticated', 'authenticated', 'q5@example.invalid');
+update public.profiles set display_name = 'Quest Shop ' || right(id::text, 1), adult_confirmed_at = now()
+where id in ('a1a1a1a1-0000-4000-8000-000000000011', 'a2a2a2a2-0000-4000-8000-000000000012',
+             'a3a3a3a3-0000-4000-8000-000000000013', 'a4a4a4a4-0000-4000-8000-000000000014',
+             'a5a5a5a5-0000-4000-8000-000000000015');
+
+create function perm_test.offer(p_owner uuid, p_lat double precision, p_rarity text)
+returns text
+language plpgsql
+as $$
+declare v_id text;
+begin
+  insert into public.drops (owner_id, type, title, object_id, lat, lng, time_zone, review)
+  values (p_owner, 'offer', 'Quest test', 'gift', p_lat, -30.0, 'UTC', 'approved')
+  returning id into v_id;
+  insert into public.offers (drop_id, savings, quantity, rarity, in_quests)
+  values (v_id, 'A test deal', 10, p_rarity, true);
+  return v_id;
+end;
+$$;
+
+-- A: four stages within a short walk, and a common offer far away.
+select set_config('t.qa1', perm_test.offer('a1a1a1a1-0000-4000-8000-000000000011', 50.000, 'common'), false);
+select set_config('t.qa2', perm_test.offer('a2a2a2a2-0000-4000-8000-000000000012', 50.003, 'uncommon'), false);
+select set_config('t.qa3', perm_test.offer('a3a3a3a3-0000-4000-8000-000000000013', 50.006, 'uncommon'), false);
+select set_config('t.qa4', perm_test.offer('a4a4a4a4-0000-4000-8000-000000000014', 50.009, 'rare'), false);
+select set_config('t.qa5', perm_test.offer('a5a5a5a5-0000-4000-8000-000000000015', 51.000, 'common'), false);
+-- B: the common and uncommon offers are never open at the same time.
+select set_config('t.qb1', perm_test.offer('a1a1a1a1-0000-4000-8000-000000000011', 52.000, 'common'), false);
+select set_config('t.qb2', perm_test.offer('a2a2a2a2-0000-4000-8000-000000000012', 52.003, 'uncommon'), false);
+select set_config('t.qb3', perm_test.offer('a3a3a3a3-0000-4000-8000-000000000013', 52.006, 'rare'), false);
+update public.drops set timing = 'weekly' where id in (current_setting('t.qb1'), current_setting('t.qb2'));
+insert into public.schedule_blocks (drop_id, days, start_time, end_time) values
+  (current_setting('t.qb1'), '{1}', '09:00', '12:00'),
+  (current_setting('t.qb2'), '{1}', '13:00', '17:00');
+-- C: one uncommon offer, so three stages.
+select set_config('t.qc1', perm_test.offer('a1a1a1a1-0000-4000-8000-000000000011', 54.000, 'common'), false);
+select set_config('t.qc2', perm_test.offer('a2a2a2a2-0000-4000-8000-000000000012', 54.003, 'uncommon'), false);
+select set_config('t.qc3', perm_test.offer('a3a3a3a3-0000-4000-8000-000000000013', 54.006, 'rare'), false);
+-- D: about 3 km between stages, as in the countryside.
+select set_config('t.qd1', perm_test.offer('a1a1a1a1-0000-4000-8000-000000000011', 56.00, 'common'), false);
+select set_config('t.qd2', perm_test.offer('a2a2a2a2-0000-4000-8000-000000000012', 56.03, 'uncommon'), false);
+select set_config('t.qd3', perm_test.offer('a3a3a3a3-0000-4000-8000-000000000013', 56.06, 'rare'), false);
+-- E: the common and uncommon offers are from the same business.
+select set_config('t.qe1', perm_test.offer('a1a1a1a1-0000-4000-8000-000000000011', 58.000, 'common'), false);
+select set_config('t.qe2', perm_test.offer('a1a1a1a1-0000-4000-8000-000000000011', 58.003, 'uncommon'), false);
+select set_config('t.qe3', perm_test.offer('a2a2a2a2-0000-4000-8000-000000000012', 58.006, 'rare'), false);
+
+select private.refresh_quests();
+
+-- The active quest an offer is in, or null.
+create function perm_test.quest_of(p_drop text)
+returns text
+language sql
+as $$
+  select q.id from public.quest_stages s join public.quests q on q.id = s.quest_id
+  where s.drop_id = p_drop and q.status = 'active' limit 1;
+$$;
+
+select set_config('t.qa_quest', coalesce(perm_test.quest_of(current_setting('t.qa1')), ''), false);
+select set_config('t.qc_quest', coalesce(perm_test.quest_of(current_setting('t.qc1')), ''), false);
+select set_config('t.qd_quest', coalesce(perm_test.quest_of(current_setting('t.qd1')), ''), false);
+
+insert into perm_test.results (test, passed, detail)
+select 'the builder links common, uncommon and rare offers in that order',
+       coalesce((select array_agg(s.drop_id || ':' || s.rarity order by s.position)
+                 from public.quest_stages s where s.quest_id = current_setting('t.qa_quest')), '{}')
+         = array[current_setting('t.qa1') || ':common', current_setting('t.qa2') || ':uncommon',
+                 current_setting('t.qa3') || ':uncommon', current_setting('t.qa4') || ':rare']
+       and (select stage_count = 4 and max_leg_m = 1600 from public.quests where id = current_setting('t.qa_quest')),
+       current_setting('t.qa_quest');
+insert into perm_test.results (test, passed, detail)
+select 'a quest can have three stages',
+       coalesce((select array_agg(s.drop_id order by s.position)
+                 from public.quest_stages s where s.quest_id = current_setting('t.qc_quest')), '{}')
+         = array[current_setting('t.qc1'), current_setting('t.qc2'), current_setting('t.qc3')], null;
+insert into perm_test.results (test, passed, detail)
+select 'stages stretch farther apart where businesses are spread out',
+       coalesce((select max_leg_m = 5000 and stage_count = 3 from public.quests where id = current_setting('t.qd_quest')), false),
+       current_setting('t.qd_quest');
+insert into perm_test.results (test, passed, detail)
+select 'offers too far away aren''t linked', perm_test.quest_of(current_setting('t.qa5')) is null, null;
+insert into perm_test.results (test, passed, detail)
+select 'stages have to be open at the same time',
+       perm_test.quest_of(current_setting('t.qb1')) is null and perm_test.quest_of(current_setting('t.qb2')) is null
+       and perm_test.quest_of(current_setting('t.qb3')) is null, null;
+insert into perm_test.results (test, passed, detail)
+select 'each stage is a different business',
+       perm_test.quest_of(current_setting('t.qe1')) is null and perm_test.quest_of(current_setting('t.qe3')) is null, null;
+insert into perm_test.results (test, passed, detail)
+select 'an offer is in one quest at a time', (private.refresh_quests() ->> 'built')::int = 0
+       and perm_test.quest_of(current_setting('t.qa1')) = current_setting('t.qa_quest'), null;
+
+set role anon;
+do $$
+declare v_json jsonb;
+begin
+  select j into v_json from public.public_quests_in_bounds(-30.01, 49.99, -29.99, 50.01) j
+  where j ->> 'id' = current_setting('t.qa_quest');
+  insert into perm_test.results (test, passed, detail)
+  values ('visitors can read quests and their stages',
+          jsonb_array_length(v_json -> 'stages') = 4
+          and v_json -> 'stages' -> 0 -> 'drop' -> 'offer' ->> 'rarity' = 'common'
+          and v_json ->> 'openHours' = repeat('1', 168)
+          and public.public_quest(current_setting('t.qa_quest')) is not null, left(v_json::text, 200));
+
+  begin
+    perform 1 from public.quests limit 1;
+    insert into perm_test.results (test, passed, detail) values ('visitors cannot read the quests table', false, 'select worked');
+  exception when insufficient_privilege then
+    insert into perm_test.results (test, passed, detail) values ('visitors cannot read the quests table', true, sqlerrm);
+  end;
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"a2a2a2a2-0000-4000-8000-000000000012","role":"authenticated"}', false);
+do $$ begin
+  insert into perm_test.results (test, passed, detail)
+  select 'businesses see their offer''s quest',
+         (j -> 'quest' ->> 'position')::int = 2 and (j -> 'quest' ->> 'stageCount')::int = 4
+         and j -> 'quest' ->> 'id' = current_setting('t.qa_quest'), (j -> 'quest')::text
+  from public.my_drops() j where j ->> 'id' = current_setting('t.qa2');
+
+  begin
+    insert into public.quest_stages (quest_id, position, drop_id, rarity)
+    values (current_setting('t.qa_quest'), 4, current_setting('t.qa2'), 'rare');
+    insert into perm_test.results (test, passed, detail) values ('businesses cannot change quests', false, 'insert worked');
+  exception when insufficient_privilege then
+    insert into perm_test.results (test, passed, detail) values ('businesses cannot change quests', true, sqlerrm);
+  end;
+
+  begin
+    perform public.rebuild_quests();
+    insert into perm_test.results (test, passed, detail) values ('only staff can build quests', false, 'rebuild worked');
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('only staff can build quests', sqlerrm = 'not_staff', sqlerrm);
+  end;
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"eeeeeeee-0000-4000-8000-000000000005","role":"authenticated"}', false);
+do $$ begin
+  insert into perm_test.results (test, passed, detail)
+  select 'staff see every quest',
+         exists (select 1 from public.staff_quests() j where j ->> 'id' = current_setting('t.qa_quest')), null;
+  -- Taking a stage down hides it from the quest at once, before the next refresh.
+  perform public.review_drop(current_setting('t.qc2'), 'reject', 'It''s spam.');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role anon;
+do $$ begin
+  insert into perm_test.results (test, passed, detail)
+  values ('a stage taken down leaves the public quest at once',
+          public.public_quest(current_setting('t.qc_quest')) -> 'stages' -> 1 -> 'drop' = 'null'::jsonb, null);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+-- The rare stage of A is paused, and D's rare offer sells out.
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"a4a4a4a4-0000-4000-8000-000000000014","role":"authenticated"}', false);
+do $$ begin
+  update public.drops set paused = true where id = current_setting('t.qa4');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+update public.offers set claimed = 10 where drop_id = current_setting('t.qd3');
+select private.refresh_quests();
+
+insert into perm_test.results (test, passed, detail)
+select 'a paused stage retires its quest',
+       status = 'retired' and retired_reason = 'Stage 4 is paused.', status || ': ' || coalesce(retired_reason, '')
+from public.quests where id = current_setting('t.qa_quest');
+insert into perm_test.results (test, passed, detail)
+select 'a sold-out stage retires its quest',
+       status = 'retired' and retired_reason = 'Stage 3 is sold out.', status || ': ' || coalesce(retired_reason, '')
+from public.quests where id = current_setting('t.qd_quest');
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"a4a4a4a4-0000-4000-8000-000000000014","role":"authenticated"}', false);
+do $$ begin
+  update public.drops set paused = false where id = current_setting('t.qa4');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+select private.refresh_quests();
+
+insert into perm_test.results (test, passed, detail)
+select 'a retired quest''s offers can join a new one',
+       perm_test.quest_of(current_setting('t.qa1')) is not null
+       and perm_test.quest_of(current_setting('t.qa1')) <> current_setting('t.qa_quest')
+       and perm_test.quest_of(current_setting('t.qa4')) = perm_test.quest_of(current_setting('t.qa1')), null;
+
+-- Test quests go before their businesses do.
+delete from public.quests q
+where exists (select 1 from public.quest_stages s join public.drops d on d.id = s.drop_id
+              where s.quest_id = q.id
+                and d.owner_id in ('a1a1a1a1-0000-4000-8000-000000000011', 'a2a2a2a2-0000-4000-8000-000000000012',
+                                   'a3a3a3a3-0000-4000-8000-000000000013', 'a4a4a4a4-0000-4000-8000-000000000014',
+                                   'a5a5a5a5-0000-4000-8000-000000000015'));
+
 -- A test whose check finds no row records nothing, so make sure none went missing.
 -- Update this number when adding or removing a test.
 insert into perm_test.results (test, passed, detail)
-select 'every test recorded a result', count(*) = 125, count(*)::text || ' of 125'
+select 'every test recorded a result', count(*) = 142, count(*)::text || ' of 142'
 from perm_test.results;
 
 -- ===== Clean up, then show the results ====================================
@@ -1226,12 +1442,16 @@ delete from auth.users where id in (
   'aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000002',
   'cccccccc-0000-4000-8000-000000000003', 'dddddddd-0000-4000-8000-000000000004',
   'eeeeeeee-0000-4000-8000-000000000005', 'ffffffff-0000-4000-8000-000000000006',
-  'abababab-0000-4000-8000-000000000007', 'cdcdcdcd-0000-4000-8000-000000000008');
+  'abababab-0000-4000-8000-000000000007', 'cdcdcdcd-0000-4000-8000-000000000008',
+  'a1a1a1a1-0000-4000-8000-000000000011', 'a2a2a2a2-0000-4000-8000-000000000012',
+  'a3a3a3a3-0000-4000-8000-000000000013', 'a4a4a4a4-0000-4000-8000-000000000014',
+  'a5a5a5a5-0000-4000-8000-000000000015');
 delete from public.moderation_events
 where drop_id in (current_setting('t.d1'), current_setting('t.a1'), current_setting('t.a_open'), current_setting('t.f1'),
                   current_setting('t.a_paused'), current_setting('t.a_link'), current_setting('t.a_over'),
                   current_setting('t.g1'), current_setting('t.g2'), current_setting('t.g3'), current_setting('t.g4'),
-                  current_setting('t.g5'), current_setting('t.h1'), current_setting('t.h2'), current_setting('t.b_old'));
+                  current_setting('t.g5'), current_setting('t.h1'), current_setting('t.h2'), current_setting('t.b_old'),
+                  current_setting('t.qc2'));
 delete from public.reports
 where drop_id in (current_setting('t.a1'), current_setting('t.a_open'), current_setting('t.b_old'))
    or (drop_id is null and contact = 'owner@example.invalid');

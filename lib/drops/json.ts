@@ -7,6 +7,7 @@ import type {
   DropCheck,
   DropType,
   Look,
+  QuestPlace,
   MyDrop,
   Offer,
   Owner,
@@ -51,6 +52,8 @@ export type DropJson = {
   assetFiles?: AssetFiles | null;
   /** Only from my_drops (what the owner may see) and the review queue (everything). */
   check?: DropCheck | null;
+  /** Only from my_drops: the quest this offer is a stage of. */
+  quest?: QuestPlace | null;
 };
 
 export function dropFromJson(j: DropJson): PublicDrop {
@@ -84,6 +87,7 @@ export function myDropFromJson(j: DropJson): MyDrop {
     hiddenForReport: j.hiddenForReport === true,
     assetFiles: j.assetFiles ?? null,
     check: j.check ?? null,
+    quest: j.quest ?? null,
   };
 }
 

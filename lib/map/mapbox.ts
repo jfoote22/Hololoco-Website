@@ -24,6 +24,8 @@ export function shownSize(size: number): number {
 
 const SOURCE = "hl-drops";
 const MODEL_LAYER = "hl-drop-models";
+const ROUTE_SOURCE = "hl-route";
+const ROUTE_LAYER = "hl-route-line";
 
 export const DEFAULT_VIEW = { zoom: 16.4, pitch: 58, bearing: -20 };
 
@@ -109,6 +111,7 @@ class MapboxEngine implements MapEngine {
         loaded = true;
         if (process.env.NODE_ENV === "development") Object.assign(window, { __hlMap: map, __hlEngine: this });
         this.addModelLayer(map);
+        this.addRouteLayer(map);
         map.on("zoom", () => this.placePinsOnModels());
         resolve();
       });
@@ -142,6 +145,42 @@ class MapboxEngine implements MapEngine {
         "model-opacity": ["interpolate", ["linear"], ["zoom"], MODEL_MIN_ZOOM, 0, MODEL_MIN_ZOOM + 0.4, 1],
         "model-emissive-strength": 0.35,
       },
+    });
+  }
+
+  /** A dashed line joining a quest's stages, drawn on the ground under the pins. */
+  private addRouteLayer(map: MapboxMap) {
+    map.addSource(ROUTE_SOURCE, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addLayer({
+      id: ROUTE_LAYER,
+      type: "line",
+      source: ROUTE_SOURCE,
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color": "#006d7a",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 12, 3, 17, 6],
+        "line-dasharray": [1.5, 1.5],
+        "line-opacity": 0.85,
+        "line-emissive-strength": 1,
+      },
+    });
+  }
+
+  setRoute(points: LngLat[] | null) {
+    const source = this.map?.getSource(ROUTE_SOURCE) as GeoJSONSource | undefined;
+    if (!source) return;
+    source.setData({
+      type: "FeatureCollection",
+      features:
+        points && points.length > 1
+          ? [
+              {
+                type: "Feature",
+                properties: {},
+                geometry: { type: "LineString", coordinates: points.map((p) => [p.lng, p.lat]) },
+              },
+            ]
+          : [],
     });
   }
 

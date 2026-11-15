@@ -148,7 +148,12 @@ export type MyDrop = PublicDrop & {
   assetFiles: AssetFiles | null;
   /** The automatic check, or null for drops that never had one. */
   check: DropCheck | null;
+  /** The quest this offer is a stage of, if any. */
+  quest: QuestPlace | null;
 };
+
+/** Which quest an offer is in, and where. */
+export type QuestPlace = { id: string; name: string; position: number; stageCount: number };
 
 /** An offer as the add flow sends it. */
 export type OfferInput = {

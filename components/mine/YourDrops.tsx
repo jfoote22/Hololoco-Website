@@ -11,6 +11,8 @@ import { signOut, useSession } from "@/components/auth/session";
 import { DropThumb } from "@/components/DropThumb";
 import { useMap } from "@/components/map/MapProvider";
 import { SheetHeight } from "@/components/map/SheetHeight";
+import { useQuestRoute } from "@/components/map/useQuestRoute";
+import { QuestStages } from "@/components/QuestStages";
 import { SearchBox } from "@/components/SearchBox";
 import { primaryButton, textButton } from "@/components/ui";
 import { Welcome } from "./Welcome";
@@ -18,6 +20,7 @@ import { offerCountText, rarityLabel, rarityText, timingText, typeLabel } from "
 import { attachPreviews } from "@/lib/assets";
 import { deleteDrop, getProfile, getStanding, listMyDrops, setPaused, setRarity, type Standing } from "@/lib/drops/mine";
 import type { MyDrop, Rarity } from "@/lib/drops/types";
+import { getQuest, type Quest } from "@/lib/quests";
 
 type Loaded = {
   userId: string;
@@ -70,6 +73,9 @@ export function YourDrops() {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // The quest opened from one of the person's offers, drawn on the map.
+  const [openQuest, setOpenQuest] = useState<{ dropId: string; quest: Quest } | null>(null);
+  const showRoute = useQuestRoute();
 
   useEffect(() => {
     if (!userId) return;
@@ -163,6 +169,20 @@ export function YourDrops() {
     reload();
   }
 
+  async function toggleQuest(drop: MyDrop) {
+    if (!drop.quest) return;
+    if (openQuest?.dropId === drop.id) {
+      setOpenQuest(null);
+      return showRoute(null);
+    }
+    setBusy(drop.id);
+    const quest = await getQuest(drop.quest.id);
+    setBusy(null);
+    if (!quest) return setActionError("That quest couldn't be loaded. Try again in a moment.");
+    setOpenQuest({ dropId: drop.id, quest });
+    showRoute(quest);
+  }
+
   function showOnMap(drop: MyDrop) {
     focus(drop);
     setSheet("peek");
@@ -213,9 +233,14 @@ export function YourDrops() {
         </p>
       )}
       {mine?.isStaff && (
-        <Link href="/review" className={`${textButton} self-start`}>
-          Open the review queue
-        </Link>
+        <div className="flex flex-wrap gap-x-4">
+          <Link href="/review" className={textButton}>
+            Open the review queue
+          </Link>
+          <Link href="/quests" className={textButton}>
+            See all quests
+          </Link>
+        </div>
       )}
       {saved && (
         <p role="status" className="rounded-lg bg-accent-wash px-3 py-2.5 text-sm">
@@ -263,8 +288,15 @@ export function YourDrops() {
                       </span>
                     )}
                     {status.line && <span className="text-[13px] text-muted">{status.line}</span>}
+                    {drop.quest && drop.review === "approved" && !suspended && (
+                      <span className="text-[13px] text-muted">
+                        Stage {drop.quest.position} of {drop.quest.stageCount} in a quest
+                      </span>
+                    )}
                   </div>
                 </div>
+
+                {openQuest?.dropId === drop.id && <QuestStages quest={openQuest.quest} highlight={drop.id} />}
 
                 <CheckTips drop={drop} busy={busy === drop.id} onUseRarity={(rarity) => changeRarity(drop, rarity)} />
 
@@ -288,6 +320,17 @@ export function YourDrops() {
                     <button type="button" onClick={() => showOnMap(drop)} className={textButton}>
                       Show on the map
                     </button>
+                    {drop.quest && drop.review === "approved" && !suspended && (
+                      <button
+                        type="button"
+                        disabled={busy === drop.id}
+                        aria-expanded={openQuest?.dropId === drop.id}
+                        onClick={() => toggleQuest(drop)}
+                        className={textButton}
+                      >
+                        {openQuest?.dropId === drop.id ? "Hide the quest" : "Show the quest"}
+                      </button>
+                    )}
                     {!suspended && (
                       <Link href={`/add?edit=${drop.id}`} className={textButton}>
                         Edit

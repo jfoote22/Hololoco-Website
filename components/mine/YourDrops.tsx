@@ -32,7 +32,11 @@ type Loaded = {
 
 /** The automatic check hasn't finished with it yet. */
 const isChecking = (drop: MyDrop) =>
-  drop.review === "pending" && drop.check !== null && ["queued", "running", "retry"].includes(drop.check.state);
+  drop.review === "pending" &&
+  ((drop.check !== null && ["queued", "running", "retry"].includes(drop.check.state)) || isPhotoChecking(drop));
+
+/** Its photo is still in the automatic photo check. */
+const isPhotoChecking = (drop: MyDrop) => drop.photoCheck === "queued" || drop.photoCheck === "running";
 
 function statusOf(drop: MyDrop, suspended: boolean): { word: string; tone: string; line?: string } {
   if (suspended && drop.review === "approved")
@@ -45,12 +49,16 @@ function statusOf(drop: MyDrop, suspended: boolean): { word: string; tone: strin
     };
   if (drop.review === "pending" && drop.hiddenForReport)
     return { word: "Hidden for now", tone: "text-review", line: "Someone reported it. It's off the map until a person checks it." };
+  if (isPhotoChecking(drop) && drop.review === "pending")
+    return { word: "Checking", tone: "text-review", line: "An automatic check is looking at your photo. This usually takes a few seconds." };
   if (isChecking(drop))
     return { word: "Checking", tone: "text-review", line: "An automatic check is looking at it. This usually takes under a minute." };
   if (drop.review === "pending") {
     const person =
       drop.look.kind === "upload" && drop.look.status !== "approved"
-        ? "A person checks every photo and model, usually within a day."
+        ? drop.look.assetKind === "photo"
+          ? "A person is checking your photo, usually within a day."
+          : "A person checks every 3D model, usually within a day."
         : "A person is checking it, usually within a day.";
     return {
       word: "In review",
@@ -225,8 +233,10 @@ export function YourDrops() {
         <p role="status" className="rounded-lg bg-accent-wash px-3 py-2.5 text-sm">
           {justAdded.review !== "pending"
             ? "Thanks! Your drop is live."
-            : justAdded.look.kind === "upload" && justAdded.look.status !== "approved"
-              ? "Thanks! Your drop is in review. A person checks every photo and model, usually within a day. Until then only you can see it."
+            : isPhotoChecking(justAdded)
+              ? "Thanks! An automatic check is looking at your photo now. This usually takes a few seconds."
+              : justAdded.look.kind === "upload" && justAdded.look.status !== "approved" && justAdded.look.assetKind === "model"
+              ? "Thanks! Your drop is in review. A person checks every 3D model, usually within a day. Until then only you can see it."
               : isChecking(justAdded)
                 ? "Thanks! An automatic check is looking at it now. This usually takes under a minute."
                 : "Thanks! A person will check it, usually within a day. Until then only you can see it."}

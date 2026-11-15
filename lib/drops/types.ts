@@ -150,6 +150,17 @@ export type MyDrop = PublicDrop & {
   check: DropCheck | null;
   /** The quest this offer is a stage of, if any. */
   quest: QuestPlace | null;
+  /** Where its photo is in the automatic photo check, if it uses a photo. */
+  photoCheck: PhotoCheckState | null;
+};
+
+/** The automatic photo check: queued and running while it looks; done once it has decided; failed if it couldn't. */
+export type PhotoCheckState = "queued" | "running" | "done" | "failed";
+
+/** What the photo check found, for staff. */
+export type PhotoCheck = {
+  state: PhotoCheckState | null;
+  result: { flags?: string[]; error?: string } | null;
 };
 
 /** Which quest an offer is in, and where. */

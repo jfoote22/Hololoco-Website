@@ -4,7 +4,7 @@
 import { myDropFromJson, type DropJson } from "@/lib/drops/json";
 import { errorText } from "@/lib/drops/mine";
 import { PUBLIC_BUCKET, UPLOADS_BUCKET } from "@/lib/assets";
-import type { AssetFiles, MyDrop, UploadLook } from "@/lib/drops/types";
+import type { AssetFiles, MyDrop, PhotoCheck, UploadLook } from "@/lib/drops/types";
 import { browserClient } from "@/lib/supabase/browser";
 
 export type QueueItem = MyDrop & {
@@ -16,6 +16,8 @@ export type QueueItem = MyDrop & {
   ownerStrikes: number;
   /** review: a complaint is open or it has a strike. */
   ownerStanding: "good" | "review" | "suspended";
+  /** For a photo: what the automatic photo check found. */
+  photoScan: PhotoCheck | null;
 };
 
 export type Decision = "approve" | "reject" | "reopen";
@@ -75,6 +77,7 @@ export async function listQueue(): Promise<QueueItem[]> {
     ownerSince: j.ownerSince,
     ownerStrikes: j.ownerStrikes ?? 0,
     ownerStanding: j.ownerStanding ?? "good",
+    photoScan: j.photoCheck && typeof j.photoCheck === "object" ? j.photoCheck : null,
   }));
 }
 

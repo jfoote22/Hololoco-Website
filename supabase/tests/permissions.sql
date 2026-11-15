@@ -1429,10 +1429,168 @@ where exists (select 1 from public.quest_stages s join public.drops d on d.id = 
                                    'a3a3a3a3-0000-4000-8000-000000000013', 'a4a4a4a4-0000-4000-8000-000000000014',
                                    'a5a5a5a5-0000-4000-8000-000000000015'));
 
+-- ===== The automatic photo check ==========================================
+-- J posts photos; K has a strike. Upload rows are made as the database owner,
+-- as above, and "copying the files" is a row in storage.objects.
+
+insert into auth.users (id, aud, role, email) values
+  ('b1b1b1b1-0000-4000-8000-000000000021', 'authenticated', 'authenticated', 'j@example.invalid'),
+  ('b2b2b2b2-0000-4000-8000-000000000022', 'authenticated', 'authenticated', 'k@example.invalid');
+update public.profiles set display_name = 'Photo Tester', adult_confirmed_at = now()
+where id in ('b1b1b1b1-0000-4000-8000-000000000021', 'b2b2b2b2-0000-4000-8000-000000000022');
+update public.profiles set strikes = 1 where id = 'b2b2b2b2-0000-4000-8000-000000000022';
+
+insert into public.assets (id, owner_id, kind, source_format, model_path, thumbnail_path, photo_path)
+select v.id::uuid, v.owner::uuid, v.kind, case v.kind when 'photo' then 'jpeg' else 'glb' end,
+       v.owner || '/' || v.id || '/model.glb', v.owner || '/' || v.id || '/thumbnail.png',
+       case v.kind when 'photo' then v.owner || '/' || v.id || '/photo.jpg' end
+from (values
+  ('c1c1c1c1-0000-4000-8000-0000000000c1', 'b1b1b1b1-0000-4000-8000-000000000021', 'photo'),
+  ('c2c2c2c2-0000-4000-8000-0000000000c2', 'b1b1b1b1-0000-4000-8000-000000000021', 'photo'),
+  ('c3c3c3c3-0000-4000-8000-0000000000c3', 'b1b1b1b1-0000-4000-8000-000000000021', 'photo'),
+  ('c4c4c4c4-0000-4000-8000-0000000000c4', 'b2b2b2b2-0000-4000-8000-000000000022', 'photo'),
+  ('c5c5c5c5-0000-4000-8000-0000000000c5', 'b1b1b1b1-0000-4000-8000-000000000021', 'model'),
+  ('c6c6c6c6-0000-4000-8000-0000000000c6', 'b1b1b1b1-0000-4000-8000-000000000021', 'photo')
+) v(id, owner, kind);
+
+insert into perm_test.results (test, passed, detail)
+select 'every new photo waits for the automatic check, and models don''t',
+       (select scan_state = 'queued' from public.assets where id = 'c1c1c1c1-0000-4000-8000-0000000000c1')
+       and (select scan_state is null from public.assets where id = 'c5c5c5c5-0000-4000-8000-0000000000c5'), null;
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"b1b1b1b1-0000-4000-8000-000000000021","role":"authenticated"}', false);
+do $$
+declare v_json jsonb;
+begin
+  begin
+    update public.assets set scan_state = 'done', status = 'approved' where id = 'c1c1c1c1-0000-4000-8000-0000000000c1';
+    insert into perm_test.results (test, passed, detail) values ('people cannot mark their own photo as checked', false, 'update worked');
+  exception when insufficient_privilege then
+    insert into perm_test.results (test, passed, detail) values ('people cannot mark their own photo as checked', true, sqlerrm);
+  end;
+
+  perform set_config('t.j1', public.save_drop(jsonb_set(jsonb_set(jsonb_set(current_setting('t.drop')::jsonb,
+    '{placement,lat}', '60.0'), '{objectId}', 'null'), '{assetId}', '"c1c1c1c1-0000-4000-8000-0000000000c1"')), false);
+  perform set_config('t.j2', public.save_drop(jsonb_set(jsonb_set(jsonb_set(current_setting('t.drop')::jsonb,
+    '{placement,lat}', '60.001'), '{objectId}', 'null'), '{assetId}', '"c2c2c2c2-0000-4000-8000-0000000000c2"')), false);
+  perform set_config('t.j3', public.save_drop(jsonb_set(jsonb_set(jsonb_set(current_setting('t.drop')::jsonb,
+    '{placement,lat}', '60.002'), '{objectId}', 'null'), '{assetId}', '"c3c3c3c3-0000-4000-8000-0000000000c3"')), false);
+
+  select j into v_json from public.my_drops() j where j ->> 'id' = current_setting('t.j1');
+  insert into perm_test.results (test, passed, detail)
+  values ('a drop with a photo waits for its check, and its owner can see that',
+          v_json ->> 'review' = 'pending' and v_json ->> 'photoCheck' = 'queued', v_json ->> 'photoCheck');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"b2b2b2b2-0000-4000-8000-000000000022","role":"authenticated"}', false);
+do $$ begin
+  perform set_config('t.j4', public.save_drop(jsonb_set(jsonb_set(jsonb_set(current_setting('t.drop')::jsonb,
+    '{placement,lat}', '60.003'), '{objectId}', 'null'), '{assetId}', '"c4c4c4c4-0000-4000-8000-0000000000c4"')), false);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+do $$
+declare v_ctx jsonb; v_outcome text;
+begin
+  v_ctx := private.claim_photo_scan('c1c1c1c1-0000-4000-8000-0000000000c1');
+  insert into perm_test.results (test, passed, detail)
+  values ('only one call can claim a photo check',
+          v_ctx ->> 'photo' = 'b1b1b1b1-0000-4000-8000-000000000021/c1c1c1c1-0000-4000-8000-0000000000c1/photo.jpg'
+          and private.claim_photo_scan('c1c1c1c1-0000-4000-8000-0000000000c1') is null, v_ctx::text);
+
+  -- Clean, but its files were never copied to the public bucket.
+  v_outcome := private.finish_photo_scan('c1c1c1c1-0000-4000-8000-0000000000c1', '{"flags": []}', true);
+  insert into perm_test.results (test, passed, detail)
+  values ('a photo is only published once its files are copied',
+          v_outcome = 'failed' and (select status = 'pending' from public.assets where id = 'c1c1c1c1-0000-4000-8000-0000000000c1'),
+          v_outcome);
+
+  -- Clean, with its files copied.
+  perform private.claim_photo_scan('c2c2c2c2-0000-4000-8000-0000000000c2');
+  insert into storage.objects (bucket_id, name) values
+    ('drop-assets', 'c2c2c2c2-0000-4000-8000-0000000000c2/model.glb'),
+    ('drop-assets', 'c2c2c2c2-0000-4000-8000-0000000000c2/thumbnail.png'),
+    ('drop-assets', 'c2c2c2c2-0000-4000-8000-0000000000c2/photo.jpg');
+  v_outcome := private.finish_photo_scan('c2c2c2c2-0000-4000-8000-0000000000c2', '{"flags": []}', true);
+  insert into perm_test.results (test, passed, detail)
+  values ('a clean photo goes live by itself',
+          v_outcome = 'published'
+          and (select review from public.drops where id = current_setting('t.j2')) = 'approved'
+          and (select status = 'approved' and public_photo_path = 'c2c2c2c2-0000-4000-8000-0000000000c2/photo.jpg'
+               from public.assets where id = 'c2c2c2c2-0000-4000-8000-0000000000c2'), v_outcome);
+  insert into perm_test.results (test, passed, detail)
+  values ('automatic photo approvals are logged',
+          exists (select 1 from public.moderation_events
+                  where drop_id = current_setting('t.j2') and action = 'approve' and automatic
+                    and reason = 'Automatic photo check'), null);
+
+  -- Flagged.
+  perform private.claim_photo_scan('c3c3c3c3-0000-4000-8000-0000000000c3');
+  v_outcome := private.finish_photo_scan('c3c3c3c3-0000-4000-8000-0000000000c3', '{"flags": ["Adult content: likely"]}', false);
+  insert into perm_test.results (test, passed, detail)
+  values ('a flagged photo isn''t published',
+          v_outcome = 'held' and (select status = 'pending' and public_photo_path is null
+                                  from public.assets where id = 'c3c3c3c3-0000-4000-8000-0000000000c3')
+          and (select review from public.drops where id = current_setting('t.j3')) = 'pending', v_outcome);
+
+  -- Clean, from an account with a strike.
+  perform private.claim_photo_scan('c4c4c4c4-0000-4000-8000-0000000000c4');
+  insert into storage.objects (bucket_id, name) values
+    ('drop-assets', 'c4c4c4c4-0000-4000-8000-0000000000c4/model.glb'),
+    ('drop-assets', 'c4c4c4c4-0000-4000-8000-0000000000c4/thumbnail.png'),
+    ('drop-assets', 'c4c4c4c4-0000-4000-8000-0000000000c4/photo.jpg');
+  v_outcome := private.finish_photo_scan('c4c4c4c4-0000-4000-8000-0000000000c4', '{"flags": []}', true);
+  insert into perm_test.results (test, passed, detail)
+  values ('a clean photo from an account under review still waits for a person',
+          v_outcome = 'published' and (select review from public.drops where id = current_setting('t.j4')) = 'pending', v_outcome);
+
+  -- The check can't run.
+  perform private.claim_photo_scan('c6c6c6c6-0000-4000-8000-0000000000c6');
+  perform private.fail_photo_scan('c6c6c6c6-0000-4000-8000-0000000000c6', 'not_configured');
+  insert into perm_test.results (test, passed, detail)
+  values ('a photo check that can''t run is marked for a person',
+          (select scan_state = 'failed' and scan ->> 'error' = 'not_configured'
+           from public.assets where id = 'c6c6c6c6-0000-4000-8000-0000000000c6'), null);
+end $$;
+
+set role anon;
+do $$ begin
+  insert into perm_test.results (test, passed, detail)
+  values ('visitors see a photo that passed the check',
+          public.public_drop(current_setting('t.j2')) -> 'asset' ->> 'photo' = 'c2c2c2c2-0000-4000-8000-0000000000c2/photo.jpg', null);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"eeeeeeee-0000-4000-8000-000000000005","role":"authenticated"}', false);
+do $$ begin
+  insert into perm_test.results (test, passed, detail)
+  select 'staff see flagged photos in the queue, with what was flagged',
+         exists (select 1 from public.review_queue() j
+                 where j ->> 'id' = current_setting('t.j3')
+                   and j -> 'photoCheck' -> 'result' -> 'flags' ->> 0 = 'Adult content: likely')
+         and exists (select 1 from public.review_queue() j
+                     where j ->> 'id' = current_setting('t.j1') and j -> 'photoCheck' ->> 'state' = 'failed'), null;
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+delete from storage.objects
+where bucket_id = 'drop-assets'
+  and name in ('c2c2c2c2-0000-4000-8000-0000000000c2/model.glb', 'c2c2c2c2-0000-4000-8000-0000000000c2/thumbnail.png',
+               'c2c2c2c2-0000-4000-8000-0000000000c2/photo.jpg', 'c4c4c4c4-0000-4000-8000-0000000000c4/model.glb',
+               'c4c4c4c4-0000-4000-8000-0000000000c4/thumbnail.png', 'c4c4c4c4-0000-4000-8000-0000000000c4/photo.jpg');
+
 -- A test whose check finds no row records nothing, so make sure none went missing.
 -- Update this number when adding or removing a test.
 insert into perm_test.results (test, passed, detail)
-select 'every test recorded a result', count(*) = 142, count(*)::text || ' of 142'
+select 'every test recorded a result', count(*) = 154, count(*)::text || ' of 154'
 from perm_test.results;
 
 -- ===== Clean up, then show the results ====================================
@@ -1445,13 +1603,15 @@ delete from auth.users where id in (
   'abababab-0000-4000-8000-000000000007', 'cdcdcdcd-0000-4000-8000-000000000008',
   'a1a1a1a1-0000-4000-8000-000000000011', 'a2a2a2a2-0000-4000-8000-000000000012',
   'a3a3a3a3-0000-4000-8000-000000000013', 'a4a4a4a4-0000-4000-8000-000000000014',
-  'a5a5a5a5-0000-4000-8000-000000000015');
+  'a5a5a5a5-0000-4000-8000-000000000015', 'b1b1b1b1-0000-4000-8000-000000000021',
+  'b2b2b2b2-0000-4000-8000-000000000022');
 delete from public.moderation_events
 where drop_id in (current_setting('t.d1'), current_setting('t.a1'), current_setting('t.a_open'), current_setting('t.f1'),
                   current_setting('t.a_paused'), current_setting('t.a_link'), current_setting('t.a_over'),
                   current_setting('t.g1'), current_setting('t.g2'), current_setting('t.g3'), current_setting('t.g4'),
                   current_setting('t.g5'), current_setting('t.h1'), current_setting('t.h2'), current_setting('t.b_old'),
-                  current_setting('t.qc2'));
+                  current_setting('t.qc2'), current_setting('t.j1'), current_setting('t.j2'), current_setting('t.j3'),
+                  current_setting('t.j4'));
 delete from public.reports
 where drop_id in (current_setting('t.a1'), current_setting('t.a_open'), current_setting('t.b_old'))
    or (drop_id is null and contact = 'owner@example.invalid');

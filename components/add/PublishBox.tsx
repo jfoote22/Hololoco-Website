@@ -164,7 +164,9 @@ export function PublishBox({
         {myStanding === "suspended"
           ? "Your account is suspended, so you can't publish."
           : draft.upload && !draft.upload.assetId
-            ? "A person checks every photo and model before people can see it in the app, usually within a day."
+            ? draft.upload.kind === "photo"
+              ? "An automatic check looks at your photo first, usually in a few seconds. If anything needs a closer look, a person checks it, usually within a day."
+              : "A person checks every 3D model before people can see it in the app, usually within a day."
             : myStanding === "review"
               ? "A person checks your drops for now, usually within a day. Until then only you can see it."
               : draft.editing

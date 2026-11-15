@@ -7,6 +7,8 @@ import type {
   DropCheck,
   DropType,
   Look,
+  PhotoCheck,
+  PhotoCheckState,
   QuestPlace,
   MyDrop,
   Offer,
@@ -54,6 +56,8 @@ export type DropJson = {
   check?: DropCheck | null;
   /** Only from my_drops: the quest this offer is a stage of. */
   quest?: QuestPlace | null;
+  /** my_drops: the photo check's state. The review queue: the state and what it found. */
+  photoCheck?: PhotoCheckState | PhotoCheck | null;
 };
 
 export function dropFromJson(j: DropJson): PublicDrop {
@@ -88,6 +92,7 @@ export function myDropFromJson(j: DropJson): MyDrop {
     assetFiles: j.assetFiles ?? null,
     check: j.check ?? null,
     quest: j.quest ?? null,
+    photoCheck: typeof j.photoCheck === "string" ? j.photoCheck : (j.photoCheck?.state ?? null),
   };
 }
 

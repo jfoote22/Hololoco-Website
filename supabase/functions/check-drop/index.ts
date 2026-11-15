@@ -49,7 +49,7 @@ async function run(dropId: string) {
 
     const result = await checkDrop(ctx);
     const [finished] = await sql`
-      select private.finish_check(${runId}::bigint, ${JSON.stringify(result)}::jsonb) as applied`;
+      select private.finish_check(${runId}::bigint, ${sql.json(result)}) as applied`;
     console.log(`check ${runId} for ${dropId}: ${result.decision}, applied ${finished?.applied}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

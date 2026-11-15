@@ -193,7 +193,9 @@ export function LookPicker({
         </div>
       )}
 
-      <p className="text-xs text-muted">A person checks every photo and model before people can see it in the app.</p>
+      <p className="text-xs text-muted">
+        Photos get an automatic check before people can see them in the app, and a person checks every 3D model.
+      </p>
     </fieldset>
   );
 }

@@ -196,8 +196,8 @@ export function ReviewQueue() {
       <div className="flex flex-col gap-1">
         <h1 className="text-[22px] font-bold">Review</h1>
         <p className="text-sm text-muted">
-          Drops go live at once. Reports come first; then drops waiting for a person: every photo and model, and
-          everything from accounts with a complaint or a strike. Keep or approve anything that follows the content
+          Drops go live at once. Reports come first; then drops waiting for a person: photos the automatic check
+          flagged, every 3D model, and everything from accounts with a complaint or a strike. Keep or approve anything that follows the content
           rules. If something doesn&apos;t, say why: the owner sees the reason, and it&apos;s a strike. Three strikes
           suspend an account.
         </p>
@@ -307,7 +307,7 @@ export function ReviewQueue() {
           </h2>
           {current.queue.length === 0 && (
             <p className="text-sm text-muted">
-              Photos and models, and drops from accounts with a complaint or a strike, show up here.
+              Flagged photos, 3D models, and drops from accounts with a complaint or a strike show up here.
             </p>
           )}
           <ul className="flex flex-col divide-y divide-line">
@@ -336,6 +336,7 @@ export function ReviewQueue() {
                 )}
                 <p className="text-[13px] text-muted">{factsLine(item)}</p>
                 <CheckFacts item={item} />
+                <PhotoScanFacts item={item} />
                 {item.look.kind === "upload" && <UploadFacts item={item} check={checks[item.id]} />}
                 <Decide
                   busy={busy === item.id}
@@ -534,6 +535,37 @@ function Decide({
         </button>
       </div>
     </form>
+  );
+}
+
+/** What the automatic photo check found, or why it couldn't run. */
+function PhotoScanFacts({ item }: { item: QueueItem }) {
+  const scan = item.photoScan;
+  if (!scan?.state) return null;
+  const flags = scan.result?.flags ?? [];
+  const error = scan.result?.error;
+  const title =
+    scan.state === "queued" || scan.state === "running"
+      ? "Automatic photo check: still running"
+      : error === "not_configured"
+        ? "Automatic photo check: not set up yet"
+        : error
+          ? "Automatic photo check: couldn't run"
+          : flags.length
+            ? "Automatic photo check: flagged"
+            : "Automatic photo check: passed";
+  return (
+    <div className="flex flex-col gap-1 rounded-lg bg-wash px-3 py-2 text-[13px]">
+      <b className="font-semibold">{title}</b>
+      {error && error !== "not_configured" && <p>{error}</p>}
+      {flags.length > 0 && (
+        <ul className="list-disc pl-5">
+          {flags.map((flag) => (
+            <li key={flag}>{flag}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

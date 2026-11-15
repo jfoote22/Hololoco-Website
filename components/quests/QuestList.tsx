@@ -68,7 +68,8 @@ export function QuestList() {
         <p className="text-sm text-muted">
           Built every 15 minutes from offers that opted in: a common offer first, one or two uncommon ones, and a rare
           one last, each from a different business, open at the same hours, a short walk apart (farther where
-          businesses are spread out). A quest retires when one of its stages drops out.
+          businesses are spread out). Quests of one kind of business get a theme, like a coffee crawl. A quest retires
+          when one of its stages drops out.
         </p>
       </div>
 

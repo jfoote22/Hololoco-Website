@@ -3,7 +3,7 @@
 // tap away. Only the person's own browser ever holds it until they publish.
 
 import { limits } from "@/lib/drops/limits";
-import type { Audience, DropInput, DropType, MyDrop, Placement, Rarity, Timing, WeeklyBlock } from "@/lib/drops/types";
+import type { Audience, DropInput, DropType, MyDrop, OfferKind, Placement, Rarity, Timing, WeeklyBlock } from "@/lib/drops/types";
 import { library } from "@/lib/library/objects";
 
 export type Step = 1 | 2 | 3;
@@ -31,6 +31,9 @@ export type DraftOffer = {
   perPerson: number;
   rarity: Rarity;
   inQuests: boolean;
+  kind: OfferKind;
+  category: string;
+  tradeable: boolean;
 };
 
 export type Draft = {
@@ -65,6 +68,9 @@ export const OFFER_DEFAULTS: DraftOffer = {
   perPerson: 1,
   rarity: "common",
   inQuests: false,
+  kind: "deal",
+  category: "other",
+  tradeable: true,
 };
 
 export function browserTimeZone(): string {
@@ -160,6 +166,9 @@ export function draftFromDrop(drop: MyDrop): Draft {
           perPerson: drop.offer.perPersonLimit,
           rarity: drop.offer.rarity,
           inQuests: drop.offer.inQuests,
+          kind: drop.offer.kind,
+          category: drop.offer.category,
+          tradeable: drop.offer.tradeable,
         }
       : OFFER_DEFAULTS,
     placement: drop.placement,

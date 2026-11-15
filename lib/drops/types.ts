@@ -75,6 +75,9 @@ export type Drop = {
  */
 export type Rarity = "common" | "uncommon" | "rare";
 
+/** deal: a coupon or discount. giveaway: something free. gift_card: a gift card or certificate. */
+export type OfferKind = "deal" | "giveaway" | "gift_card";
+
 /** Public offer fields. */
 export type Offer = {
   /** What people get, shown as written, e.g. "Buy one coffee, get one free". */
@@ -86,6 +89,11 @@ export type Offer = {
   rarity: Rarity;
   /** The business lets Hololoco link it into quests with other businesses nearby. */
   inQuests: boolean;
+  kind: OfferKind;
+  /** What kind of business it's from (lib/drops/categories.ts). Quests of one category get a theme. */
+  category: string;
+  /** Players can trade it, or leave it on the map for someone else. */
+  tradeable: boolean;
 };
 
 /** The public face of whoever posted a drop. */
@@ -152,6 +160,8 @@ export type MyDrop = PublicDrop & {
   quest: QuestPlace | null;
   /** Where its photo is in the automatic photo check, if it uses a photo. */
   photoCheck: PhotoCheckState | null;
+  /** How many people captured it, and (offers) redeemed it. */
+  stats: { captures: number; redeemed: number | null } | null;
 };
 
 /** The automatic photo check: queued and running while it looks; done once it has decided; failed if it couldn't. */
@@ -174,6 +184,9 @@ export type OfferInput = {
   perPerson: number;
   rarity: Rarity;
   inQuests: boolean;
+  kind: OfferKind;
+  category: string;
+  tradeable: boolean;
 };
 
 /** What the add flow sends to the database (save_drop). No id means a new drop. */

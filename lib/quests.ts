@@ -19,6 +19,9 @@ export type QuestStage = {
 export type Quest = {
   id: string;
   name: string;
+  /** The category every stage shares, when the quest has a theme ("coffee"), and the theme's name ("Coffee crawl"). */
+  theme?: string | null;
+  themeName?: string | null;
   status: "active" | "retired";
   stageCount: number;
   /** The longest leg allowed when it was built: 1600 (a 20-minute walk), 5000 or 15000 m. */

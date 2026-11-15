@@ -58,7 +58,14 @@ export type DropJson = {
   quest?: QuestPlace | null;
   /** my_drops: the photo check's state. The review queue: the state and what it found. */
   photoCheck?: PhotoCheckState | PhotoCheck | null;
+  /** Only from my_drops: captures and redemptions. */
+  stats?: { captures: number; redeemed: number | null } | null;
 };
+
+/** Offers saved before kinds, categories and trading existed read as a tradeable deal. */
+function offerFromJson(offer: Partial<Offer> & Omit<Offer, "kind" | "category" | "tradeable">): Offer {
+  return { ...offer, kind: offer.kind ?? "deal", category: offer.category ?? "other", tradeable: offer.tradeable ?? true };
+}
 
 export function dropFromJson(j: DropJson): PublicDrop {
   const status = j.review === "rejected" ? "rejected" : j.review === "pending" ? "in_review" : j.paused ? "paused" : "live";
@@ -76,7 +83,7 @@ export function dropFromJson(j: DropJson): PublicDrop {
     audience: j.audience,
     status,
     owner: j.owner,
-    ...(j.offer ? { offer: j.offer } : {}),
+    ...(j.offer ? { offer: offerFromJson(j.offer) } : {}),
   };
 }
 
@@ -93,6 +100,7 @@ export function myDropFromJson(j: DropJson): MyDrop {
     check: j.check ?? null,
     quest: j.quest ?? null,
     photoCheck: typeof j.photoCheck === "string" ? j.photoCheck : (j.photoCheck?.state ?? null),
+    stats: j.stats ?? null,
   };
 }
 

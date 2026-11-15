@@ -5,6 +5,7 @@
 // in the browser and only uploaded at Publish.
 
 import Image from "next/image";
+import Link from "next/link";
 import { useState } from "react";
 import { secondaryButton } from "@/components/ui";
 import { library } from "@/lib/library/objects";
@@ -31,10 +32,13 @@ export function LookPicker({
   draft,
   update,
   preview,
+  canModels,
 }: {
   draft: Draft;
   update: (change: Partial<Draft>) => void;
   preview: UploadPreview | null;
+  /** The plan allows uploading 3D models. A drop that already has one keeps it. */
+  canModels: boolean;
 }) {
   // Kept in the draft so Next can tell a chosen photo or model apart from one that isn't ready.
   const tab = draft.look;
@@ -130,7 +134,17 @@ export function LookPicker({
         </div>
       )}
 
-      {tab !== "library" && (
+      {tab === "model" && !canModels && !draft.upload?.assetId && (
+        <div className="flex flex-col gap-1 rounded-lg bg-wash px-3 py-2.5 text-sm">
+          <b className="font-semibold">Your own 3D models come with the Plus plan</b>
+          <span>Photos and the ready-made objects are free.</span>
+          <Link href="/plan" className="self-start font-medium text-accent hover:underline">
+            See plans
+          </Link>
+        </div>
+      )}
+
+      {tab !== "library" && (tab !== "model" || canModels || Boolean(draft.upload?.assetId)) && (
         <div className="flex flex-col gap-3">
           {upload && (
             <div className="flex items-center gap-3 rounded-lg border border-accent bg-accent-wash p-3">

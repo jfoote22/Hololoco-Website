@@ -3,6 +3,7 @@
 // The add flow: What, Where and When. It never leaves the map: the drop
 // appears on the map as soon as it has a place, and sign-in waits until Publish.
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { SignIn } from "@/components/auth/SignIn";
@@ -11,8 +12,10 @@ import { useMap } from "@/components/map/MapProvider";
 import { SheetHeight } from "@/components/map/SheetHeight";
 import { SearchBox } from "@/components/SearchBox";
 import { choiceCard, inputClass, labelClass, primaryButton, secondaryButton, textButton } from "@/components/ui";
+import { categories, offerKinds } from "@/lib/drops/categories";
 import { limits } from "@/lib/drops/limits";
 import { listMyDrops } from "@/lib/drops/mine";
+import { allowed, getMyPlan, type Allowed } from "@/lib/plans";
 import { library, libraryObject } from "@/lib/library/objects";
 import { forgetUpload } from "@/lib/upload/store";
 import type { DropType } from "@/lib/drops/types";
@@ -73,6 +76,28 @@ function AddFlow({ editId }: { editId: string | null }) {
   const update = (change: Partial<Draft>) => setDraft((d) => ({ ...d, ...change }));
   const preview = useUploadPreview(draft.upload);
   const userId = session.status === "signed-in" ? session.user.id : null;
+  // What the person's plan allows. Signed out, nothing is held back until Publish.
+  const [can, setCan] = useState<Allowed>({ offers: true, models: true, events: false });
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    getMyPlan().then((plan) => {
+      if (cancelled || !plan) return;
+      const now = allowed(plan);
+      setCan(now);
+      // A new drop starts as an offer; without offers, start with a message instead.
+      if (!now.offers)
+        setDraft((d) =>
+          !d.editing && d.type === "offer"
+            ? { ...d, type: "message", objectId: d.objectId === library[0]?.id ? "note" : d.objectId }
+            : d,
+        );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   // Load the drop being edited.
   useEffect(() => {
@@ -209,7 +234,7 @@ function AddFlow({ editId }: { editId: string | null }) {
         </ol>
       </div>
 
-      {draft.step === 1 && <WhatStep draft={draft} update={update} preview={preview} />}
+      {draft.step === 1 && <WhatStep draft={draft} update={update} preview={preview} can={can} />}
       {draft.step === 2 && (
         <WhereStep draft={draft} update={update} mapReady={status === "ready"} mapUnavailable={status === "unavailable"} />
       )}
@@ -261,19 +286,22 @@ function AddFlow({ editId }: { editId: string | null }) {
 
 type StepProps = { draft: Draft; update: (change: Partial<Draft>) => void };
 
-function WhatStep({ draft, update, preview }: StepProps & { preview: UploadPreview | null }) {
+function WhatStep({ draft, update, preview, can }: StepProps & { preview: UploadPreview | null; can: Allowed }) {
   const titleLeft = limits.titleMaxChars - draft.title.length;
   const descriptionLeft = limits.descriptionMaxChars - draft.description.length;
+  // An offer being edited stays editable even if the plan has changed since.
+  const offerLocked = !can.offers && !(draft.editing && draft.type === "offer");
   return (
     <div className="flex flex-col gap-4">
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 text-sm font-semibold">What is it?</legend>
         {TYPES.map(({ type, name, line }) => (
-          <label key={type} className={choiceCard}>
+          <label key={type} className={`${choiceCard} ${type === "offer" && offerLocked ? "cursor-default opacity-70" : ""}`}>
             <input
               type="radio"
               name="type"
               checked={draft.type === type}
+              disabled={type === "offer" && offerLocked}
               onChange={() =>
                 update({
                   type,
@@ -286,6 +314,14 @@ function WhatStep({ draft, update, preview }: StepProps & { preview: UploadPrevi
             <span className="text-sm">
               <b className="block">{name}</b>
               <span className="text-muted">{line}</span>
+              {type === "offer" && offerLocked && (
+                <span className="mt-1 block text-[13px]">
+                  Offers come with the Business plan.{" "}
+                  <Link href="/plan" className="font-medium text-accent hover:underline">
+                    See plans
+                  </Link>
+                </span>
+              )}
             </span>
           </label>
         ))}
@@ -322,7 +358,7 @@ function WhatStep({ draft, update, preview }: StepProps & { preview: UploadPrevi
         </span>
       </label>
 
-      <LookPicker draft={draft} update={update} preview={preview} />
+      <LookPicker draft={draft} update={update} preview={preview} canModels={can.models} />
     </div>
   );
 }
@@ -332,6 +368,22 @@ function OfferFields({ offer, update }: { offer: DraftOffer; update: (change: Pa
   const whole = (value: string) => (value === "" ? 0 : Math.floor(Number(value)));
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-line p-3">
+      <label className={labelClass}>
+        Kind of offer
+        <select
+          value={offer.kind}
+          onChange={(event) => update({ kind: event.target.value as DraftOffer["kind"] })}
+          className={inputClass}
+        >
+          {offerKinds.map((k) => (
+            <option key={k.id} value={k.id}>
+              {k.name}
+            </option>
+          ))}
+        </select>
+        <span className="text-xs font-normal text-muted">{offerKinds.find((k) => k.id === offer.kind)?.hint}</span>
+      </label>
+
       <label className={labelClass}>
         What do people get?
         <input
@@ -381,6 +433,35 @@ function OfferFields({ offer, update }: { offer: DraftOffer; update: (change: Pa
           onChange={(event) => update({ terms: event.target.value })}
           className={`${inputClass} py-2 leading-normal`}
         />
+      </label>
+
+      <label className={labelClass}>
+        What kind of business is it?
+        <select value={offer.category} onChange={(event) => update({ category: event.target.value })} className={inputClass}>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <span className="text-xs font-normal text-muted">
+          Quests made of one kind of business get a theme, like a coffee crawl.
+        </span>
+      </label>
+
+      <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm">
+        <input
+          type="checkbox"
+          checked={offer.tradeable}
+          onChange={(event) => update({ tradeable: event.target.checked })}
+          className="mt-1 accent-accent"
+        />
+        <span>
+          <b className="block font-medium">People can trade it</b>
+          <span className="text-muted">
+            They can swap it with other players or leave it on the map for someone else. Whoever holds it can redeem it.
+          </span>
+        </span>
       </label>
     </div>
   );

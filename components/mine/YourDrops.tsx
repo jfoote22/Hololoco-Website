@@ -20,7 +20,9 @@ import { offerCountText, rarityLabel, rarityText, timingText, typeLabel } from "
 import { attachPreviews } from "@/lib/assets";
 import { deleteDrop, getProfile, getStanding, listMyDrops, setPaused, setRarity, type Standing } from "@/lib/drops/mine";
 import type { MyDrop, Rarity } from "@/lib/drops/types";
+import { allowed, planNames } from "@/lib/plans";
 import { getQuest, type Quest } from "@/lib/quests";
+import { useMyPlan } from "@/components/plan/useMyPlan";
 
 type Loaded = {
   userId: string;
@@ -84,6 +86,7 @@ export function YourDrops() {
   // The quest opened from one of the person's offers, drawn on the map.
   const [openQuest, setOpenQuest] = useState<{ dropId: string; quest: Quest } | null>(null);
   const showRoute = useQuestRoute();
+  const plan = useMyPlan();
 
   useEffect(() => {
     if (!userId) return;
@@ -252,6 +255,21 @@ export function YourDrops() {
           </Link>
         </div>
       )}
+      <nav aria-label="Your account" className="flex flex-wrap gap-x-4">
+        <Link href="/plan" className={textButton}>
+          {plan && !plan.staff ? `Your plan: ${planNames[plan.plan]}` : "Plans"}
+        </Link>
+        {(mine?.drops?.some((d) => d.type === "offer") || (plan && allowed(plan).offers && !plan.staff)) && (
+          <Link href="/redeem" className={textButton}>
+            Redeem a code
+          </Link>
+        )}
+        {plan && allowed(plan).events && (
+          <Link href="/events" className={textButton}>
+            Events
+          </Link>
+        )}
+      </nav>
       {saved && (
         <p role="status" className="rounded-lg bg-accent-wash px-3 py-2.5 text-sm">
           Changes saved.
@@ -295,6 +313,12 @@ export function YourDrops() {
                     {drop.offer && (
                       <span className="text-[13px] text-muted">
                         {drop.offer.savings} · {offerCountText(drop.offer)} · {rarityText(drop.offer)}
+                      </span>
+                    )}
+                    {drop.stats && drop.stats.captures > 0 && (
+                      <span className="text-[13px] text-muted">
+                        {drop.stats.captures === 1 ? "Collected once" : `Collected ${drop.stats.captures} times`}
+                        {drop.offer && drop.stats.redeemed !== null ? ` · ${drop.stats.redeemed} redeemed` : ""}
                       </span>
                     )}
                     {status.line && <span className="text-[13px] text-muted">{status.line}</span>}

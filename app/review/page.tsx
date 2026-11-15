@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { SheetHeight } from "@/components/map/SheetHeight";
+import { PlanRequests } from "@/components/review/PlanRequests";
 import { ReviewQueue } from "@/components/review/ReviewQueue";
 
 export const metadata: Metadata = { title: "Review", robots: { index: false, follow: false } };
@@ -13,6 +14,7 @@ export default function ReviewScreen() {
       <SheetHeight size="full" />
       <Suspense fallback={<p className="text-sm text-muted">Loading…</p>}>
         <ReviewQueue />
+        <PlanRequests />
       </Suspense>
     </>
   );

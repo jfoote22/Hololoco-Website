@@ -670,7 +670,7 @@ values ('keeping a reported drop returns its account to good standing', public.a
 
 insert into auth.users (id, aud, role, email) values
   ('ffffffff-0000-4000-8000-000000000006', 'authenticated', 'authenticated', 'f@example.invalid');
-update public.profiles set display_name = 'Tester', adult_confirmed_at = now()
+update public.profiles set display_name = 'Tester', adult_confirmed_at = now(), plan = 'plus'
 where id = 'ffffffff-0000-4000-8000-000000000006';
 insert into public.drops (owner_id, type, title, object_id, lat, lng, time_zone, review)
 values ('ffffffff-0000-4000-8000-000000000006', 'object', 'Earlier drop', 'gift', 47.0, -30.0, 'UTC', 'approved');
@@ -859,7 +859,8 @@ select set_config('request.jwt.claims', '', false);
 
 insert into auth.users (id, aud, role, email) values
   ('abababab-0000-4000-8000-000000000007', 'authenticated', 'authenticated', 'g@example.invalid');
-update public.profiles set display_name = 'Test Bakery', adult_confirmed_at = now() where id = 'abababab-0000-4000-8000-000000000007';
+update public.profiles set display_name = 'Test Bakery', adult_confirmed_at = now(), plan = 'business'
+where id = 'abababab-0000-4000-8000-000000000007';
 select set_config('t.offer', jsonb_set(jsonb_set(jsonb_set(current_setting('t.drop')::jsonb,
   '{type}', '"offer"'), '{placement,lat}', '48.0'),
   '{offer}', '{"savings": "Buy one, get one free", "terms": "Pastries only.", "quantity": 50, "perPerson": 1,
@@ -1587,10 +1588,616 @@ where bucket_id = 'drop-assets'
                'c2c2c2c2-0000-4000-8000-0000000000c2/photo.jpg', 'c4c4c4c4-0000-4000-8000-0000000000c4/model.glb',
                'c4c4c4c4-0000-4000-8000-0000000000c4/thumbnail.png', 'c4c4c4c4-0000-4000-8000-0000000000c4/photo.jpg');
 
+-- ===== Plans ==============================================================
+-- P1 starts on Free and becomes a business. P2 and P3 are players. P4 runs
+-- events; P5 is a third business for quests.
+
+insert into auth.users (id, aud, role, email) values
+  ('f1f1f1f1-0000-4000-8000-000000000031', 'authenticated', 'authenticated', 'p1@example.invalid'),
+  ('f2f2f2f2-0000-4000-8000-000000000032', 'authenticated', 'authenticated', 'p2@example.invalid'),
+  ('f3f3f3f3-0000-4000-8000-000000000033', 'authenticated', 'authenticated', 'p3@example.invalid'),
+  ('f4f4f4f4-0000-4000-8000-000000000034', 'authenticated', 'authenticated', 'p4@example.invalid'),
+  ('f5f5f5f5-0000-4000-8000-000000000035', 'authenticated', 'authenticated', 'p5@example.invalid');
+update public.profiles set display_name = 'Play Tester ' || right(id::text, 1), adult_confirmed_at = now()
+where id in ('f1f1f1f1-0000-4000-8000-000000000031', 'f2f2f2f2-0000-4000-8000-000000000032',
+             'f3f3f3f3-0000-4000-8000-000000000033', 'f4f4f4f4-0000-4000-8000-000000000034',
+             'f5f5f5f5-0000-4000-8000-000000000035');
+
+-- Runs a statement that should fail, and records whether it failed with this error (a LIKE pattern).
+create function perm_test.expect(p_test text, p_sql text, p_error text)
+returns void
+language plpgsql
+as $$
+begin
+  begin
+    execute p_sql;
+    insert into perm_test.results (test, passed, detail) values (p_test, false, 'it worked');
+  exception when others then
+    insert into perm_test.results (test, passed, detail) values (p_test, sqlerrm like p_error, sqlerrm);
+  end;
+end;
+$$;
+grant execute on function perm_test.expect(text, text, text) to anon, authenticated;
+
+insert into perm_test.results (test, passed, detail)
+select 'new accounts start on the Free plan', plan = 'free', plan
+from public.profiles where id = 'f1f1f1f1-0000-4000-8000-000000000031';
+
+insert into storage.objects (bucket_id, name) values
+  ('uploads', 'f1f1f1f1-0000-4000-8000-000000000031/0a0a0a0a-0000-4000-8000-0000000000a1/model.glb'),
+  ('uploads', 'f1f1f1f1-0000-4000-8000-000000000031/0a0a0a0a-0000-4000-8000-0000000000a1/thumbnail.png');
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f1f1f1f1-0000-4000-8000-000000000031","role":"authenticated"}', false);
+do $$
+declare v_json jsonb;
+begin
+  perform perm_test.expect('the Free plan can''t add offers',
+    format('select public.save_drop(%L::jsonb)', jsonb_set(current_setting('t.offer')::jsonb, '{placement,lat}', '61.5')),
+    'plan_offers');
+  perform perm_test.expect('the Free plan can''t upload 3D models',
+    $q$insert into public.assets (id, kind, source_format, model_path, thumbnail_path)
+       values ('0a0a0a0a-0000-4000-8000-0000000000a1', 'model', 'glb',
+               'f1f1f1f1-0000-4000-8000-000000000031/0a0a0a0a-0000-4000-8000-0000000000a1/model.glb',
+               'f1f1f1f1-0000-4000-8000-000000000031/0a0a0a0a-0000-4000-8000-0000000000a1/thumbnail.png')$q$,
+    'plan_models');
+  perform perm_test.expect('people can''t change their own plan',
+    $q$update public.profiles set plan = 'events' where id = 'f1f1f1f1-0000-4000-8000-000000000031'$q$,
+    'permission denied%');
+
+  v_json := public.my_plan();
+  insert into perm_test.results (test, passed, detail)
+  values ('people see their plan, what they use, and every plan',
+          v_json ->> 'plan' = 'free' and jsonb_array_length(v_json -> 'plans') = 4 and (v_json ->> 'drops')::int = 0
+          and (v_json -> 'plans' -> 0 ->> 'maxDrops')::int = 10, v_json::text);
+
+  perform perm_test.expect('Free isn''t something to ask for', $q$select public.request_plan('free', 'x')$q$, 'bad_plan');
+  perform perm_test.expect('a request says what it''s for', $q$select public.request_plan('business', '  ')$q$, 'note_needed');
+  perform public.request_plan('plus', 'Testing');
+  perform public.request_plan('business', 'Test Cafe, 1 Main St');
+  insert into perm_test.results (test, passed, detail)
+  values ('asking again replaces the open request',
+          public.my_plan() -> 'request' ->> 'plan' = 'business' and public.my_plan() -> 'request' ->> 'status' = 'open',
+          (public.my_plan() -> 'request')::text);
+
+  perform perm_test.expect('people can''t see others'' plan requests', 'select public.plan_requests_queue()', 'not_staff');
+  perform perm_test.expect('people can''t grant plans', 'select public.decide_plan_request(1, true)', 'not_staff');
+  perform perm_test.expect('people can''t set plans',
+    $q$select public.set_plan('f1f1f1f1-0000-4000-8000-000000000031', 'events')$q$, 'not_staff');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"eeeeeeee-0000-4000-8000-000000000005","role":"authenticated"}', false);
+do $$
+declare v_request jsonb;
+begin
+  select j into v_request from public.plan_requests_queue() j
+  where j -> 'user' ->> 'id' = 'f1f1f1f1-0000-4000-8000-000000000031';
+  insert into perm_test.results (test, passed, detail)
+  values ('staff see plan requests with who''s asking',
+          v_request ->> 'plan' = 'business' and v_request -> 'user' ->> 'email' = 'p1@example.invalid', v_request::text);
+  perform public.decide_plan_request((v_request ->> 'id')::bigint, true, 'Welcome');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f1f1f1f1-0000-4000-8000-000000000031","role":"authenticated"}', false);
+do $$
+declare v_id text; v_json jsonb;
+begin
+  insert into perm_test.results (test, passed, detail)
+  values ('a granted request changes the plan',
+          public.my_plan() ->> 'plan' = 'business' and public.my_plan() -> 'request' ->> 'status' = 'granted',
+          public.my_plan()::text);
+
+  v_id := public.save_drop(jsonb_set(jsonb_set(current_setting('t.offer')::jsonb, '{placement,lat}', '61.5'), '{offer}',
+    '{"savings": "A free cookie", "terms": "", "quantity": 5, "perPerson": 1, "rarity": "common", "inQuests": false,
+      "kind": "giveaway", "category": "sweets", "tradeable": false}'));
+  perform set_config('t.p1offer', v_id, false);
+  select j into v_json from public.my_drops() j where j ->> 'id' = v_id;
+  insert into perm_test.results (test, passed, detail)
+  values ('offers save their kind, category, and whether they can be traded',
+          v_json -> 'offer' ->> 'kind' = 'giveaway' and v_json -> 'offer' ->> 'category' = 'sweets'
+          and not (v_json -> 'offer' ->> 'tradeable')::boolean, (v_json -> 'offer')::text);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+update public.profiles set plan_until = now() - interval '1 day' where id = 'f1f1f1f1-0000-4000-8000-000000000031';
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f1f1f1f1-0000-4000-8000-000000000031","role":"authenticated"}', false);
+do $$ begin
+  perform perm_test.expect('a plan that has ended counts as Free',
+    format('select public.save_drop(%L::jsonb)', jsonb_set(current_setting('t.offer')::jsonb, '{placement,lat}', '61.6')),
+    'plan_offers');
+  begin
+    perform public.save_drop(jsonb_set(jsonb_set(jsonb_set(current_setting('t.offer')::jsonb, '{placement,lat}', '61.5'),
+      '{id}', to_jsonb(current_setting('t.p1offer'))), '{title}', '"Renamed"'));
+    insert into perm_test.results (test, passed, detail) values ('existing offers stay editable after a plan ends', true, null);
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('existing offers stay editable after a plan ends', false, sqlerrm);
+  end;
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+update public.profiles set plan_until = null where id = 'f1f1f1f1-0000-4000-8000-000000000031';
+
+-- B is on Free with ten drops already (above).
+update public.profiles set plan = 'plus' where id = 'bbbbbbbb-0000-4000-8000-000000000002';
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"bbbbbbbb-0000-4000-8000-000000000002","role":"authenticated"}', false);
+do $$ begin
+  begin
+    perform public.save_drop(jsonb_set(current_setting('t.drop')::jsonb, '{placement,lat}', '45.3'));
+    insert into perm_test.results (test, passed, detail) values ('Plus allows more drops than Free', true, null);
+  exception when raise_exception then
+    insert into perm_test.results (test, passed, detail) values ('Plus allows more drops than Free', false, sqlerrm);
+  end;
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+-- ===== Playing ============================================================
+-- P1's drops, a few metres apart: an offer with two in stock, an untradeable
+-- offer, two objects, and an object far away.
+
+create function perm_test.place(p_owner uuid, p_type text, p_lat double precision, p_quantity integer default 10,
+                                p_rarity text default 'common', p_tradeable boolean default true,
+                                p_in_quests boolean default false)
+returns text
+language plpgsql
+as $$
+declare v_id text;
+begin
+  insert into public.drops (owner_id, type, title, object_id, lat, lng, time_zone, review)
+  values (p_owner, p_type, 'Play test ' || p_type, 'gift', p_lat, -30.0, 'UTC', 'approved')
+  returning id into v_id;
+  if p_type = 'offer' then
+    insert into public.offers (drop_id, savings, quantity, per_person, rarity, tradeable, in_quests)
+    values (v_id, 'A test deal', p_quantity, 1, p_rarity, p_tradeable, p_in_quests);
+  end if;
+  return v_id;
+end;
+$$;
+
+select set_config('t.o1', perm_test.place('f1f1f1f1-0000-4000-8000-000000000031', 'offer', 61.0, 2), false);
+select set_config('t.o2', perm_test.place('f1f1f1f1-0000-4000-8000-000000000031', 'offer', 61.0002, 10, 'common', false), false);
+select set_config('t.ob1', perm_test.place('f1f1f1f1-0000-4000-8000-000000000031', 'object', 61.0004), false);
+select set_config('t.ob2', perm_test.place('f1f1f1f1-0000-4000-8000-000000000031', 'object', 61.0006), false);
+select set_config('t.far', perm_test.place('f1f1f1f1-0000-4000-8000-000000000031', 'object', 62.0), false);
+
+set role anon;
+do $$
+declare v_json jsonb;
+begin
+  perform perm_test.expect('visitors can''t capture',
+    format('select public.capture(%L, 61.0, -30.0, 5)', current_setting('t.o1')), 'permission denied%');
+  perform perm_test.expect('visitors can''t read the inventory', 'select 1 from public.inventory limit 1', 'permission denied%');
+  v_json := public.app_nearby(61.0, -30.0, 200);
+  insert into perm_test.results (test, passed, detail)
+  values ('anyone can see what''s nearby, nearest first',
+          jsonb_array_length(v_json -> 'drops') = 4 and v_json -> 'drops' -> 0 ->> 'id' = current_setting('t.o1')
+          and v_json -> 'drops' -> 3 ->> 'id' = current_setting('t.ob2') and jsonb_typeof(v_json -> 'player') = 'null',
+          v_json::text);
+  perform perm_test.expect('nearby needs a real place', 'select public.app_nearby(95, 0)', 'bad_location');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f2f2f2f2-0000-4000-8000-000000000032","role":"authenticated"}', false);
+do $$
+declare v_json jsonb;
+begin
+  perform perm_test.expect('capturing needs a good location fix',
+    format('select public.capture(%L, 61.0, -30.0, 500)', current_setting('t.o1')), 'location_unclear');
+  perform perm_test.expect('capturing needs you to be there',
+    format('select public.capture(%L, 61.01, -30.0, 5)', current_setting('t.o1')), 'too_far');
+
+  v_json := public.capture(current_setting('t.o1'), 61.0, -30.0, 5);
+  perform set_config('t.i1', v_json -> 'item' ->> 'id', false);
+  insert into perm_test.results (test, passed, detail)
+  values ('capturing an offer puts it in the inventory and earns XP',
+          v_json -> 'item' ->> 'status' = 'held' and (v_json ->> 'xp')::int = 20 and (v_json -> 'player' ->> 'xp')::int = 20
+          and exists (select 1 from public.my_inventory() j where j ->> 'id' = current_setting('t.i1')), v_json::text);
+  perform perm_test.expect('each person captures an offer up to its per-person limit',
+    format('select public.capture(%L, 61.0, -30.0, 5)', current_setting('t.o1')), 'already_captured');
+
+  v_json := public.capture(current_setting('t.ob1'), 61.0004, -30.0, 5);
+  perform set_config('t.i2', v_json -> 'item' ->> 'id', false);
+  insert into perm_test.results (test, passed, detail)
+  values ('an object earns less XP than an offer', (v_json ->> 'xp')::int = 10, v_json ->> 'xp');
+  perform perm_test.expect('captures can''t be more than 250 km/h apart',
+    format('select public.capture(%L, 62.0, -30.0, 5)', current_setting('t.far')), 'moving_too_fast');
+
+  v_json := public.capture(current_setting('t.o2'), 61.0002, -30.0, 5);
+  perform set_config('t.i3', v_json -> 'item' ->> 'id', false);
+
+  perform perm_test.expect('handles are 3 to 20 letters, digits or _', $q$select public.set_handle('no')$q$, 'bad_handle');
+  perform public.set_handle('Player_One');
+  insert into perm_test.results (test, passed, detail)
+  values ('people choose a handle, kept in lowercase',
+          public.my_player() ->> 'handle' = 'player_one' and (public.my_player() ->> 'xp')::int = 50
+          and (public.my_player() ->> 'level')::int = 1, public.my_player()::text);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f3f3f3f3-0000-4000-8000-000000000033","role":"authenticated"}', false);
+do $$
+declare v_json jsonb;
+begin
+  perform perm_test.expect('handles are unique', $q$select public.set_handle('player_one')$q$, 'handle_taken');
+  perform public.set_handle('player_two');
+  v_json := public.capture(current_setting('t.o1'), 61.0, -30.0, 5);
+  perform set_config('t.i4', v_json -> 'item' ->> 'id', false);
+  insert into perm_test.results (test, passed, detail)
+  values ('players see only their own inventory',
+          not exists (select 1 from public.my_inventory() j
+                      where j ->> 'id' in (current_setting('t.i1'), current_setting('t.i2'), current_setting('t.i3'))), null);
+  perform public.set_for_trade(current_setting('t.i4')::uuid, true);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f4f4f4f4-0000-4000-8000-000000000034","role":"authenticated"}', false);
+do $$ begin
+  perform perm_test.expect('nobody can capture an offer that''s run out',
+    format('select public.capture(%L, 61.0, -30.0, 5)', current_setting('t.o1')), 'sold_out');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '{"sub":"f1f1f1f1-0000-4000-8000-000000000031","role":"authenticated"}', false);
+set role authenticated;
+do $$ begin
+  perform perm_test.expect('businesses can''t capture their own drops',
+    format('select public.capture(%L, 61.0002, -30.0, 5)', current_setting('t.o2')), 'own_drop');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+-- Redeeming.
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f2f2f2f2-0000-4000-8000-000000000032","role":"authenticated"}', false);
+do $$
+declare v_a jsonb; v_b jsonb;
+begin
+  v_a := public.start_redemption(current_setting('t.i1')::uuid);
+  v_b := public.start_redemption(current_setting('t.i1')::uuid);
+  perform set_config('t.code', v_a ->> 'code', false);
+  insert into perm_test.results (test, passed, detail)
+  values ('redeeming shows a 6-digit code, the same one until it''s used',
+          v_a ->> 'code' ~ '^[0-9]{6}$' and v_a ->> 'code' = v_b ->> 'code', v_a::text);
+  perform perm_test.expect('only offers are redeemed',
+    format('select public.start_redemption(%L)', current_setting('t.i2')), 'not_an_offer');
+  perform perm_test.expect('players can''t confirm their own code',
+    format('select public.confirm_redemption(%L)', current_setting('t.code')), 'code_not_found');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '{"sub":"f4f4f4f4-0000-4000-8000-000000000034","role":"authenticated"}', false);
+set role authenticated;
+do $$ begin
+  perform perm_test.expect('a code only works at its own business',
+    format('select public.confirm_redemption(%L)', current_setting('t.code')), 'code_not_found');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '{"sub":"f1f1f1f1-0000-4000-8000-000000000031","role":"authenticated"}', false);
+set role authenticated;
+do $$
+declare v_json jsonb;
+begin
+  v_json := public.confirm_redemption(substr(current_setting('t.code'), 1, 3) || ' ' || substr(current_setting('t.code'), 4));
+  insert into perm_test.results (test, passed, detail)
+  values ('the business types in the code, and that redeems the offer',
+          v_json ->> 'player' = 'player_one'
+          and (select (j -> 'stats' ->> 'redeemed')::int from public.my_drops() j where j ->> 'id' = current_setting('t.o1')) = 1
+          and (select (j -> 'stats' ->> 'captures')::int from public.my_drops() j where j ->> 'id' = current_setting('t.o1')) = 2,
+          v_json::text);
+  perform perm_test.expect('a code works once',
+    format('select public.confirm_redemption(%L)', current_setting('t.code')), 'code_not_found');
+  insert into perm_test.results (test, passed, detail)
+  values ('businesses see their redemptions',
+          exists (select 1 from public.recent_redemptions() j where j ->> 'player' = 'player_one'), null);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+-- Trading.
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f2f2f2f2-0000-4000-8000-000000000032","role":"authenticated"}', false);
+do $$
+declare v_shelf jsonb; v_trade jsonb;
+begin
+  insert into perm_test.results (test, passed, detail)
+  values ('a redeemed offer stays in the inventory as redeemed',
+          (select j ->> 'status' from public.my_inventory() j where j ->> 'id' = current_setting('t.i1')) = 'redeemed', null);
+
+  v_shelf := public.player_shelf('Player_Two');
+  insert into perm_test.results (test, passed, detail)
+  values ('players see only what others put up for trade',
+          jsonb_array_length(v_shelf -> 'items') = 1 and v_shelf -> 'items' -> 0 ->> 'id' = current_setting('t.i4')
+          and v_shelf -> 'captures' is null, v_shelf::text);
+  perform perm_test.expect('an offer its business made untradeable can''t go up for trade',
+    format('select public.set_for_trade(%L, true)', current_setting('t.i3')), 'not_tradeable');
+  perform perm_test.expect('an untradeable offer can''t be left on the map',
+    format('select public.drop_item(%L, 61.0, -30.0)', current_setting('t.i3')), 'not_tradeable');
+  perform perm_test.expect('an untradeable offer can''t be offered in a trade',
+    format('select public.propose_trade(%L, array[%L]::uuid[], array[%L]::uuid[])',
+           'player_two', current_setting('t.i3'), current_setting('t.i4')), 'item_not_available');
+  perform perm_test.expect('nobody trades with themselves',
+    format('select public.propose_trade(%L, array[%L]::uuid[])', 'player_one', current_setting('t.i2')), 'trade_with_self');
+
+  v_trade := public.propose_trade('player_two', array[current_setting('t.i2')]::uuid[], array[current_setting('t.i4')]::uuid[]);
+  perform set_config('t.trade', v_trade ->> 'id', false);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f3f3f3f3-0000-4000-8000-000000000033","role":"authenticated"}', false);
+do $$
+declare v_json jsonb;
+begin
+  insert into perm_test.results (test, passed, detail)
+  values ('people see trades offered to them',
+          exists (select 1 from public.my_trades() j
+                  where j ->> 'id' = current_setting('t.trade') and not (j ->> 'fromMe')::boolean
+                    and j -> 'other' ->> 'handle' = 'player_one'), null);
+  v_json := public.answer_trade(current_setting('t.trade')::uuid, true);
+  insert into perm_test.results (test, passed, detail)
+  values ('accepting a trade swaps the items',
+          v_json ->> 'status' = 'accepted'
+          and exists (select 1 from public.my_inventory() j where j ->> 'id' = current_setting('t.i2') and j ->> 'source' = 'trade')
+          and not exists (select 1 from public.my_inventory() j where j ->> 'id' = current_setting('t.i4')), v_json::text);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f2f2f2f2-0000-4000-8000-000000000032","role":"authenticated"}', false);
+do $$
+declare v_trade jsonb;
+begin
+  insert into perm_test.results (test, passed, detail)
+  values ('a traded offer can be redeemed by its new owner',
+          public.start_redemption(current_setting('t.i4')::uuid) ->> 'code' ~ '^[0-9]{6}$', null);
+
+  v_trade := public.propose_trade('player_two', array[current_setting('t.i4')]::uuid[]);
+  perform set_config('t.trade2', v_trade ->> 'id', false);
+  perform public.discard_item(current_setting('t.i4')::uuid);
+  insert into perm_test.results (test, passed, detail)
+  values ('a discarded offer goes back in stock',
+          (public.public_drop(current_setting('t.o1')) -> 'offer' ->> 'remaining')::int = 1,
+          public.public_drop(current_setting('t.o1')) -> 'offer' ->> 'remaining');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f3f3f3f3-0000-4000-8000-000000000033","role":"authenticated"}', false);
+do $$ begin
+  insert into perm_test.results (test, passed, detail)
+  values ('a trade fails if an item in it was used since',
+          public.answer_trade(current_setting('t.trade2')::uuid, true) ->> 'status' = 'failed', null);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+-- Leaving items on the map.
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f2f2f2f2-0000-4000-8000-000000000032","role":"authenticated"}', false);
+do $$
+declare v_json jsonb;
+begin
+  v_json := public.capture(current_setting('t.ob2'), 61.0006, -30.0, 5);
+  perform set_config('t.i5', v_json -> 'item' ->> 'id', false);
+  perform public.drop_item(current_setting('t.i5')::uuid, 61.0006, -30.0);
+  insert into perm_test.results (test, passed, detail)
+  values ('an item left on the map shows as left',
+          (select j ->> 'status' from public.my_inventory() j where j ->> 'id' = current_setting('t.i5')) = 'dropped', null);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f3f3f3f3-0000-4000-8000-000000000033","role":"authenticated"}', false);
+do $$
+declare v_json jsonb;
+begin
+  insert into perm_test.results (test, passed, detail)
+  values ('players see items left on the map nearby',
+          exists (select 1 from jsonb_array_elements(public.app_nearby(61.0006, -30.0, 100) -> 'items') x
+                  where x ->> 'id' = current_setting('t.i5')), null);
+  perform perm_test.expect('picking up needs you to be there',
+    format('select public.pick_up_item(%L, 61.01, -30.0, 5)', current_setting('t.i5')), 'too_far');
+  v_json := public.pick_up_item(current_setting('t.i5')::uuid, 61.0006, -30.0, 5);
+  insert into perm_test.results (test, passed, detail)
+  values ('anyone nearby can pick it up, for 5 XP',
+          (v_json ->> 'xp')::int = 5 and v_json -> 'item' ->> 'status' = 'held', v_json::text);
+  perform public.drop_item(current_setting('t.i5')::uuid, 61.0006, -30.0);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+update public.loose_items set expires_at = now() - interval '1 minute' where item_id = current_setting('t.i5')::uuid;
+select private.play_upkeep();
+insert into perm_test.results (test, passed, detail)
+select 'an item nobody picks up goes back to whoever left it',
+       owner_id = 'f3f3f3f3-0000-4000-8000-000000000033' and status = 'held', status
+from public.inventory where id = current_setting('t.i5')::uuid;
+
+insert into perm_test.results (test, passed, detail)
+values ('levels need 100 XP, then 300, then 600',
+        public.level_for(0) = 1 and public.level_for(99) = 1 and public.level_for(100) = 2 and public.level_for(299) = 2
+        and public.level_for(300) = 3 and public.level_for(600) = 4 and public.xp_for_level(3) = 300, null);
+
+insert into perm_test.results (test, passed, detail)
+select 'rarer offers show up less often',
+       count(*) filter (where private.rarity_roll('d' || i, 'common', null)) = 1000
+       and count(*) filter (where private.rarity_roll('d' || i, 'uncommon', null)) between 520 and 680
+       and count(*) filter (where private.rarity_roll('d' || i, 'rare', null)) between 220 and 380,
+       count(*) filter (where private.rarity_roll('d' || i, 'uncommon', null)) || ' uncommon, '
+       || count(*) filter (where private.rarity_roll('d' || i, 'rare', null)) || ' rare of 1000'
+from generate_series(1, 1000) i;
+
+-- ===== Playing a quest, and themes ========================================
+
+select set_config('t.s1', perm_test.place('f1f1f1f1-0000-4000-8000-000000000031', 'offer', 63.0, 10, 'common', true, true), false);
+select set_config('t.s2', perm_test.place('f4f4f4f4-0000-4000-8000-000000000034', 'offer', 63.0003, 10, 'uncommon', true, true), false);
+select set_config('t.s3', perm_test.place('f5f5f5f5-0000-4000-8000-000000000035', 'offer', 63.0006, 10, 'rare', true, true), false);
+select set_config('t.c1', perm_test.place('f1f1f1f1-0000-4000-8000-000000000031', 'offer', 64.0, 10, 'common', true, true), false);
+select set_config('t.c2', perm_test.place('f4f4f4f4-0000-4000-8000-000000000034', 'offer', 64.0003, 10, 'uncommon', true, true), false);
+select set_config('t.c3', perm_test.place('f5f5f5f5-0000-4000-8000-000000000035', 'offer', 64.0006, 10, 'rare', true, true), false);
+update public.offers set category = 'coffee'
+where drop_id in (current_setting('t.c1'), current_setting('t.c2'), current_setting('t.c3'));
+select private.refresh_quests();
+select set_config('t.quest', perm_test.quest_of(current_setting('t.s1')), false);
+select set_config('t.cquest', perm_test.quest_of(current_setting('t.c1')), false);
+
+insert into perm_test.results (test, passed, detail)
+select 'a quest of one kind of business gets its theme',
+       q.theme = 'coffee' and q.name like 'Coffee crawl: %' and q.stage_count = 3
+       and public.quest_to_json(q) ->> 'themeName' = 'Coffee crawl', q.name
+from public.quests q where q.id = current_setting('t.cquest');
+insert into perm_test.results (test, passed, detail)
+select 'other quests are mixed', q.theme is null and q.stage_count = 3, q.name
+from public.quests q where q.id = current_setting('t.quest');
+
+update public.player_stats set last_capture_at = null;
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f2f2f2f2-0000-4000-8000-000000000032","role":"authenticated"}', false);
+do $$
+declare v_json jsonb; v_near jsonb;
+begin
+  perform perm_test.expect('later quest stages are locked until the one before is done',
+    format('select public.capture(%L, 63.0003, -30.0, 5)', current_setting('t.s2')), 'quest_locked');
+  v_near := public.app_nearby(63.0003, -30.0, 100);
+  insert into perm_test.results (test, passed, detail)
+  values ('locked quest stages don''t show up',
+          not exists (select 1 from jsonb_array_elements(v_near -> 'drops') x
+                      where x ->> 'id' in (current_setting('t.s2'), current_setting('t.s3')))
+          and exists (select 1 from jsonb_array_elements(v_near -> 'drops') x where x ->> 'id' = current_setting('t.s1')),
+          v_near::text);
+
+  v_json := public.capture(current_setting('t.s1'), 63.0, -30.0, 5);
+  insert into perm_test.results (test, passed, detail)
+  values ('capturing the first stage starts the quest',
+          (v_json -> 'quest' ->> 'stage')::int = 1 and (v_json ->> 'xp')::int = 45, v_json::text);
+  perform public.capture(current_setting('t.s2'), 63.0003, -30.0, 5);
+  v_json := public.capture(current_setting('t.s3'), 63.0006, -30.0, 5);
+  insert into perm_test.results (test, passed, detail)
+  values ('finishing a quest earns a bonus and points',
+          (v_json -> 'quest' ->> 'completed')::boolean and (v_json ->> 'xp')::int = 475 and (v_json ->> 'points')::int = 100,
+          v_json::text);
+  insert into perm_test.results (test, passed, detail)
+  values ('players see the quests they''ve played',
+          exists (select 1 from public.my_quests() j
+                  where j ->> 'id' = current_setting('t.quest') and j -> 'progress' ->> 'completedAt' is not null), null);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+update public.offers set category = 'food' where drop_id = current_setting('t.c2');
+select private.refresh_quests();
+insert into perm_test.results (test, passed, detail)
+select 'a themed quest retires when an offer changes its kind of business',
+       status = 'retired' and retired_reason = 'Stage 2 is a different kind of business now.', retired_reason
+from public.quests where id = current_setting('t.cquest');
+
+-- ===== Events =============================================================
+
+update public.profiles set plan = 'events' where id = 'f4f4f4f4-0000-4000-8000-000000000034';
+select set_config('t.e1', perm_test.place('f4f4f4f4-0000-4000-8000-000000000034', 'object', 65.0), false);
+select set_config('t.e2', perm_test.place('f4f4f4f4-0000-4000-8000-000000000034', 'object', 65.0003), false);
+select set_config('t.er', perm_test.place('f4f4f4f4-0000-4000-8000-000000000034', 'offer', 65.0006, 5), false);
+select set_config('t.event_payload', jsonb_build_object(
+  'title', 'Test trail', 'description', 'Two stops.', 'format', 'trail',
+  'startsAt', now() - interval '1 hour', 'endsAt', now() + interval '1 day',
+  'stopXp', 30, 'bonusXp', 200, 'bonusPoints', 40, 'rewardDropId', current_setting('t.er'),
+  'stops', jsonb_build_array(current_setting('t.e1'), current_setting('t.e2')))::text, false);
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f1f1f1f1-0000-4000-8000-000000000031","role":"authenticated"}', false);
+do $$ begin
+  perform perm_test.expect('events need the Events plan',
+    format('select public.save_event(%L::jsonb)', jsonb_set(current_setting('t.event_payload')::jsonb, '{stops}',
+           jsonb_build_array(current_setting('t.o1'), current_setting('t.o2')))), 'plan_events');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '{"sub":"f4f4f4f4-0000-4000-8000-000000000034","role":"authenticated"}', false);
+set role authenticated;
+do $$
+declare v_id text;
+begin
+  perform perm_test.expect('an event''s stops are the business''s own drops',
+    format('select public.save_event(%L::jsonb)', jsonb_set(current_setting('t.event_payload')::jsonb, '{stops}',
+           jsonb_build_array(current_setting('t.e1'), current_setting('t.o1')))), 'event_stops');
+  v_id := public.save_event(current_setting('t.event_payload')::jsonb);
+  perform set_config('t.event', v_id, false);
+  insert into perm_test.results (test, passed, detail)
+  values ('businesses on the Events plan make events from their drops',
+          exists (select 1 from public.my_events() j where j ->> 'id' = v_id and jsonb_array_length(j -> 'stops') = 2), null);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+update public.player_stats set last_capture_at = null;
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f2f2f2f2-0000-4000-8000-000000000032","role":"authenticated"}', false);
+do $$
+declare v_json jsonb;
+begin
+  v_json := public.capture(current_setting('t.e2'), 65.0003, -30.0, 5);
+  insert into perm_test.results (test, passed, detail)
+  values ('a trail''s stops count only in order',
+          jsonb_array_length(v_json -> 'events') = 0 and jsonb_typeof(v_json -> 'item') = 'object', v_json::text);
+  perform public.capture(current_setting('t.e1'), 65.0, -30.0, 5);
+  v_json := public.capture(current_setting('t.e2'), 65.0003, -30.0, 5);
+  insert into perm_test.results (test, passed, detail)
+  values ('finishing an event earns its bonus, points and reward',
+          (v_json -> 'events' -> 0 ->> 'completed')::boolean and (v_json ->> 'xp')::int = 230
+          and (v_json ->> 'points')::int = 40 and jsonb_array_length(v_json -> 'rewards') = 1
+          and jsonb_typeof(v_json -> 'item') = 'null', v_json::text);
+  insert into perm_test.results (test, passed, detail)
+  values ('the app sees events nearby, with the player''s progress',
+          exists (select 1 from jsonb_array_elements(public.app_nearby(65.0, -30.0, 200) -> 'events') x
+                  where x ->> 'id' = current_setting('t.event') and x -> 'progress' ->> 'completedAt' is not null), null);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '{"sub":"f4f4f4f4-0000-4000-8000-000000000034","role":"authenticated"}', false);
+set role authenticated;
+do $$ begin
+  insert into perm_test.results (test, passed, detail)
+  values ('businesses see how many players finished their events',
+          (select (j ->> 'finished')::int from public.my_events() j where j ->> 'id' = current_setting('t.event')) = 1, null);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+set role anon;
+do $$ begin
+  insert into perm_test.results (test, passed, detail)
+  values ('anyone can open an event', public.public_event(current_setting('t.event')) ->> 'title' = 'Test trail', null);
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+-- Test quests go before their businesses do.
+delete from public.quests q
+where exists (select 1 from public.quest_stages s join public.drops d on d.id = s.drop_id
+              where s.quest_id = q.id
+                and d.owner_id in ('f1f1f1f1-0000-4000-8000-000000000031', 'f4f4f4f4-0000-4000-8000-000000000034',
+                                   'f5f5f5f5-0000-4000-8000-000000000035'));
+delete from storage.objects
+where bucket_id = 'uploads' and name like 'f1f1f1f1-0000-4000-8000-000000000031/%';
+
 -- A test whose check finds no row records nothing, so make sure none went missing.
 -- Update this number when adding or removing a test.
 insert into perm_test.results (test, passed, detail)
-select 'every test recorded a result', count(*) = 154, count(*)::text || ' of 154'
+select 'every test recorded a result', count(*) = 228, count(*)::text || ' of 228'
 from perm_test.results;
 
 -- ===== Clean up, then show the results ====================================
@@ -1604,7 +2211,9 @@ delete from auth.users where id in (
   'a1a1a1a1-0000-4000-8000-000000000011', 'a2a2a2a2-0000-4000-8000-000000000012',
   'a3a3a3a3-0000-4000-8000-000000000013', 'a4a4a4a4-0000-4000-8000-000000000014',
   'a5a5a5a5-0000-4000-8000-000000000015', 'b1b1b1b1-0000-4000-8000-000000000021',
-  'b2b2b2b2-0000-4000-8000-000000000022');
+  'b2b2b2b2-0000-4000-8000-000000000022', 'f1f1f1f1-0000-4000-8000-000000000031',
+  'f2f2f2f2-0000-4000-8000-000000000032', 'f3f3f3f3-0000-4000-8000-000000000033',
+  'f4f4f4f4-0000-4000-8000-000000000034', 'f5f5f5f5-0000-4000-8000-000000000035');
 delete from public.moderation_events
 where drop_id in (current_setting('t.d1'), current_setting('t.a1'), current_setting('t.a_open'), current_setting('t.f1'),
                   current_setting('t.a_paused'), current_setting('t.a_link'), current_setting('t.a_over'),

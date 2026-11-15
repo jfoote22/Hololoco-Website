@@ -19,9 +19,11 @@ export function errorText(error: DbError): string {
   if (message.includes("profile_incomplete"))
     return "Add the name shown on your drops and confirm you're 18 or older.";
   if (message.includes("limit_total"))
-    return `You can have ${limits.individualLiveDrops} drops at a time. Delete one in Your drops to add another.`;
+    return "You have as many drops as your plan allows. Delete one in Your drops, or ask for a bigger plan on Your plan.";
   if (message.includes("limit_daily"))
-    return `You can add ${limits.individualNewPerDay} drops a day. Try again tomorrow.`;
+    return "You've added as many drops today as your plan allows. Try again tomorrow, or ask for a bigger plan.";
+  if (message.includes("plan_offers")) return "Offers come with the Business plan. Ask for it on Your plan.";
+  if (message.includes("plan_models")) return "Uploading 3D models comes with the Plus plan. Ask for it on Your plan, or use a photo.";
   if (message.includes("limit_crowded"))
     return `This spot already has ${limits.crowdingMaxDrops} drops within ${limits.crowdingRadiusMetres} m. Try somewhere a little further away.`;
   if (message.includes("schedule_empty")) return "Add at least one set of hours, or choose Always.";

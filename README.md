@@ -123,6 +123,7 @@ The Hololoco app calls Postgres functions only; [docs/app-api.md](docs/app-api.m
 - Trading: players find each other by handle and see only the items others put up for trade. A trade fails, moving nothing, if an item changed hands since. Items can be left on the map for anyone (they come back after 7 days) or discarded (an offer goes back in stock). The per-person limit counts captures, so whoever holds a traded offer can redeem it.
 - Events (the Events plan): a business makes a hunt or a trail from 2 to 20 of its own drops at `/events`, for up to 92 days, with XP for each stop, a bonus and points for finishing, and optionally one of its offers as the reward.
 - Every 10 minutes, `private.play_upkeep` returns items nobody picked up, expires week-old trades and clears old codes.
+- Offers can have a value that drops over time (`value_cents`, `decay_percent` every `decay_days`), like old Coupemon's coupons. `offer_value_now` works it out from the database's clock, so a phone's clock can't change it; the app shows it, and the business sees it at the counter.
 
 ## How the automatic photo check works
 

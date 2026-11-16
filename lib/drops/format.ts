@@ -39,6 +39,20 @@ export function offerCountText(offer: Pick<Offer, "quantity" | "perPersonLimit">
   return `${offer.quantity.toLocaleString("en-US")} in all, ${each}`;
 }
 
+/** "$8.10" */
+export function money(cents: number): string {
+  return `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
+}
+
+/** "Worth $8.10 now, losing 10% every week", or null when it has no value. */
+export function valueText(offer: Pick<Offer, "valueCents" | "valueNowCents" | "decayPercent" | "decayDays">): string | null {
+  if (offer.valueCents === null) return null;
+  const now = offer.valueNowCents ?? offer.valueCents;
+  if (offer.decayPercent <= 0) return `Worth ${money(now)}`;
+  const every = offer.decayDays === 1 ? "every day" : offer.decayDays === 7 ? "every week" : `every ${offer.decayDays} days`;
+  return `Worth ${money(now)} now, losing ${offer.decayPercent}% ${every}`;
+}
+
 /** "Uncommon, in quests" */
 export function rarityText(offer: Pick<Offer, "rarity" | "inQuests">): string {
   return `${rarityLabel[offer.rarity]}${offer.inQuests ? ", in quests" : ""}`;

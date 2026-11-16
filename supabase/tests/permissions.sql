@@ -2187,6 +2187,46 @@ end $$;
 reset role;
 select set_config('request.jwt.claims', '', false);
 
+-- ===== Sight and bag space ================================================
+-- P3 holds two items (i2 and i5). With room for two, a third won't fit; with
+-- 50 m of sight, only the drops within 50 m show up.
+
+update public.player_stats set bag_slots = 2, sight_m = 50, last_capture_at = null
+where user_id = 'f3f3f3f3-0000-4000-8000-000000000033';
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"f3f3f3f3-0000-4000-8000-000000000033","role":"authenticated"}', false);
+do $$
+declare v_near jsonb;
+begin
+  perform perm_test.expect('a full bag takes nothing more',
+    format('select public.capture(%L, 61.0004, -30.0, 5)', current_setting('t.ob1')), 'bag_full');
+  v_near := public.app_nearby(61.0, -30.0, 1500);
+  insert into perm_test.results (test, passed, detail)
+  values ('players see drops only as far as their sight',
+          (v_near ->> 'radius')::int = 50
+          and not exists (select 1 from jsonb_array_elements(v_near -> 'drops') x where x ->> 'id' = current_setting('t.ob2'))
+          and exists (select 1 from jsonb_array_elements(v_near -> 'drops') x where x ->> 'id' = current_setting('t.ob1'))
+          and (public.my_player() ->> 'bagUsed')::int = 2 and (public.my_player() ->> 'bagSlots')::int = 2,
+          v_near ->> 'radius');
+end $$;
+reset role;
+select set_config('request.jwt.claims', '', false);
+
+-- ===== Offers that lose value =============================================
+
+select set_config('t.v1', perm_test.place('f1f1f1f1-0000-4000-8000-000000000031', 'offer', 66.0, 5), false);
+update public.offers set value_cents = 1000, decay_percent = 10, decay_days = 1, created_at = now() - interval '3 days 1 hour'
+where drop_id = current_setting('t.v1');
+insert into perm_test.results (test, passed, detail)
+select 'an offer loses its share of value every period, by the database''s clock',
+       (public.drop_to_json(d) -> 'offer' ->> 'valueNowCents')::int = 729, public.drop_to_json(d) -> 'offer' ->> 'valueNowCents'
+from public.drops d where d.id = current_setting('t.v1');
+insert into perm_test.results (test, passed, detail)
+values ('an offer with no value or no decay keeps what it had',
+        public.offer_value_now(null, 10, 1, now() - interval '9 days') is null
+        and public.offer_value_now(500, 0, 1, now() - interval '9 days') = 500
+        and public.offer_value_now(500, 50, 1, now() - interval '400 days') = 0, null);
+
 -- Test quests go before their businesses do.
 delete from public.quests q
 where exists (select 1 from public.quest_stages s join public.drops d on d.id = s.drop_id
@@ -2203,7 +2243,7 @@ select set_config('storage.allow_delete_query', 'false', false);
 -- A test whose check finds no row records nothing, so make sure none went missing.
 -- Update this number when adding or removing a test.
 insert into perm_test.results (test, passed, detail)
-select 'every test recorded a result', count(*) = 228, count(*)::text || ' of 228'
+select 'every test recorded a result', count(*) = 232, count(*)::text || ' of 232'
 from perm_test.results;
 
 -- ===== Clean up, then show the results ====================================

@@ -94,6 +94,13 @@ export type Offer = {
   category: string;
   /** Players can trade it, or leave it on the map for someone else. */
   tradeable: boolean;
+  /** What it's worth in US cents, if the business said. */
+  valueCents: number | null;
+  /** It loses this share of its value every decayDays days after it's posted (0: it doesn't). */
+  decayPercent: number;
+  decayDays: number;
+  /** What it's worth now, worked out by the database. */
+  valueNowCents: number | null;
 };
 
 /** The public face of whoever posted a drop. */
@@ -187,6 +194,9 @@ export type OfferInput = {
   kind: OfferKind;
   category: string;
   tradeable: boolean;
+  valueCents: number | null;
+  decayPercent: number;
+  decayDays: number;
 };
 
 /** What the add flow sends to the database (save_drop). No id means a new drop. */

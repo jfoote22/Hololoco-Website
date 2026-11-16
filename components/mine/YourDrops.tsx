@@ -16,7 +16,7 @@ import { QuestStages } from "@/components/QuestStages";
 import { SearchBox } from "@/components/SearchBox";
 import { primaryButton, textButton } from "@/components/ui";
 import { Welcome } from "./Welcome";
-import { offerCountText, rarityLabel, rarityText, timingText, typeLabel } from "@/lib/drops/format";
+import { offerCountText, rarityLabel, rarityText, timingText, typeLabel, valueText } from "@/lib/drops/format";
 import { attachPreviews } from "@/lib/assets";
 import { deleteDrop, getProfile, getStanding, listMyDrops, setPaused, setRarity, type Standing } from "@/lib/drops/mine";
 import type { MyDrop, Rarity } from "@/lib/drops/types";
@@ -314,6 +314,9 @@ export function YourDrops() {
                       <span className="text-[13px] text-muted">
                         {drop.offer.savings} · {offerCountText(drop.offer)} · {rarityText(drop.offer)}
                       </span>
+                    )}
+                    {drop.offer && valueText(drop.offer) && (
+                      <span className="text-[13px] text-muted">{valueText(drop.offer)}</span>
                     )}
                     {drop.stats && drop.stats.captures > 0 && (
                       <span className="text-[13px] text-muted">

@@ -22,6 +22,15 @@ called through Supabase's REST API, and the database enforces every rule.
   `placement` (`lat`, `lng`, `height` above the ground in metres, `size` across in
   metres, `turn` in degrees clockwise from north), `timeZone`, `timing`, `owner`.
 
+## Offers that lose value
+
+An offer can have a value (`offer.valueCents`, US cents) that drops by
+`offer.decayPercent` every `offer.decayDays` days after it's posted
+(`offer.valueSince`). The database works it out from its own clock:
+`offer.valueNowCents` on a drop, `valueNowCents` on an item in the bag (held or
+left on the map), and on `confirm_redemption`'s answer for the business. Show the
+database's number rather than working it out on the phone.
+
 ## Placing drops in AR
 
 `placement` is all a geospatial anchor needs: put a terrain anchor at `lat`,
@@ -33,7 +42,9 @@ framed as a GLB too. Use ARCore Geospatial on Android and iOS.
 
 ### `app_nearby(lat, lng, radius_m = 500)`
 
-Anyone can call it, signed in or not. `radius_m` is clamped to 50 to 2000.
+Anyone can call it, signed in or not. `radius_m` is clamped to 50 m and to the
+player's **sight** (300 m to start, 300 m for visitors; add-ons can raise it), and
+`radius` in the answer says what was used. The app's pulsing ring shows it.
 Returns:
 
 - `drops`: drops within the radius, nearest first, up to 200. Each is a drop
@@ -94,6 +105,7 @@ Errors:
 | `quest_locked` | A later quest stage, before the one before it is done. |
 | `sold_out` | The offer has run out. |
 | `already_captured` | Captured before, as many times as allowed, and nothing new to count. |
+| `bag_full` | The bag holds its limit (10 to start). Redeem, leave or throw something away first. |
 
 ## The inventory
 
@@ -188,7 +200,12 @@ from `app_nearby`, and open one with `public_event(event_id)`: `title`,
 ## The player
 
 `my_player()`: `handle`, `name`, `xp`, `points`, `level`, `levelXp` (XP the
-level started at), `nextLevelXp`, `captures`, `questsDone`, `eventsDone`.
+level started at), `nextLevelXp`, `captures`, `sightMetres`, `bagSlots`,
+`bagUsed`, `questsDone`, `eventsDone`.
+
+The bag holds `bagSlots` items at once (10 to start): capturing, picking up, an
+event reward and accepting a trade all answer `bag_full` when there's no room
+(`their_bag_full` when the other player has none).
 
 ## Posting from the app
 

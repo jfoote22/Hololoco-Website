@@ -62,9 +62,20 @@ export type DropJson = {
   stats?: { captures: number; redeemed: number | null } | null;
 };
 
-/** Offers saved before kinds, categories and trading existed read as a tradeable deal. */
-function offerFromJson(offer: Partial<Offer> & Omit<Offer, "kind" | "category" | "tradeable">): Offer {
-  return { ...offer, kind: offer.kind ?? "deal", category: offer.category ?? "other", tradeable: offer.tradeable ?? true };
+type NewOfferFields = "kind" | "category" | "tradeable" | "valueCents" | "decayPercent" | "decayDays" | "valueNowCents";
+
+/** Offers from before kinds, trading and values existed read as a tradeable deal with no value. */
+function offerFromJson(offer: Partial<Offer> & Omit<Offer, NewOfferFields>): Offer {
+  return {
+    ...offer,
+    kind: offer.kind ?? "deal",
+    category: offer.category ?? "other",
+    tradeable: offer.tradeable ?? true,
+    valueCents: offer.valueCents ?? null,
+    decayPercent: offer.decayPercent ?? 0,
+    decayDays: offer.decayDays ?? 7,
+    valueNowCents: offer.valueNowCents ?? offer.valueCents ?? null,
+  };
 }
 
 export function dropFromJson(j: DropJson): PublicDrop {

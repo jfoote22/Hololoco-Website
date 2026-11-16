@@ -5,7 +5,15 @@
 import { browserClient } from "@/lib/supabase/browser";
 import { errorText } from "@/lib/drops/mine";
 
-export type Redeemed = { title: string; savings: string | null; terms: string | null; player: string; at: string };
+export type Redeemed = {
+  title: string;
+  savings: string | null;
+  terms: string | null;
+  /** What it's worth at the counter, if the offer has a value. */
+  valueNowCents: number | null;
+  player: string;
+  at: string;
+};
 
 export async function confirmRedemption(code: string): Promise<Redeemed | { error: string }> {
   const client = browserClient();

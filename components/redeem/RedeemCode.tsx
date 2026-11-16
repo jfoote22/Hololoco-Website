@@ -9,6 +9,7 @@ import { SignIn } from "@/components/auth/SignIn";
 import { useSession } from "@/components/auth/session";
 import { inputClass, labelClass, primaryButton } from "@/components/ui";
 import { confirmRedemption, recentRedemptions, type Redeemed, type Redemption } from "@/lib/redeem";
+import { money } from "@/lib/drops/format";
 import { timeAgo } from "@/lib/review";
 
 export function RedeemCode() {
@@ -92,6 +93,9 @@ export function RedeemCode() {
               <b className="text-base font-semibold text-good">Redeemed</b>
               <span className="font-semibold">{result.savings ?? result.title}</span>
               {result.savings && <span>{result.title}</span>}
+              {result.valueNowCents !== null && result.valueNowCents !== undefined && (
+                <span className="font-semibold">Worth {money(result.valueNowCents)} now</span>
+              )}
               {result.terms && <span className="text-muted">Terms: {result.terms}</span>}
               <span className="text-muted">For {result.player}</span>
             </div>

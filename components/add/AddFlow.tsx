@@ -435,6 +435,42 @@ function OfferFields({ offer, update }: { offer: DraftOffer; update: (change: Pa
         />
       </label>
 
+      <div className="grid grid-cols-2 gap-3">
+        <label className={labelClass}>
+          What it&apos;s worth (optional)
+          <input
+            inputMode="decimal"
+            placeholder="$10"
+            value={offer.value}
+            onChange={(event) => update({ value: event.target.value })}
+            className={inputClass}
+          />
+        </label>
+        <label className={labelClass}>
+          Loses value over time
+          <select
+            value={offer.decayPercent === 0 ? "none" : `${offer.decayPercent}/${offer.decayDays}`}
+            disabled={!offer.value.trim()}
+            onChange={(event) => {
+              const [percent, days] = event.target.value === "none" ? [0, 7] : event.target.value.split("/").map(Number);
+              update({ decayPercent: percent, decayDays: days });
+            }}
+            className={inputClass}
+          >
+            <option value="none">No, it keeps its value</option>
+            <option value="10/7">10% every week</option>
+            <option value="20/7">20% every week</option>
+            <option value="10/1">10% every day</option>
+            <option value="25/1">25% every day</option>
+          </select>
+        </label>
+      </div>
+      {offer.value.trim() !== "" && offer.decayPercent > 0 && (
+        <p className="-mt-2 text-xs text-muted">
+          People see what it&apos;s worth now, so they hurry to collect and redeem it. You see the value at the counter.
+        </p>
+      )}
+
       <label className={labelClass}>
         What kind of business is it?
         <select value={offer.category} onChange={(event) => update({ category: event.target.value })} className={inputClass}>

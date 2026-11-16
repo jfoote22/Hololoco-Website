@@ -3,7 +3,7 @@
 // tap away. Only the person's own browser ever holds it until they publish.
 
 import { limits } from "@/lib/drops/limits";
-import type { Audience, DropInput, DropType, MyDrop, OfferKind, Placement, Rarity, Timing, WeeklyBlock } from "@/lib/drops/types";
+import type { Audience, DropInput, DropType, MyDrop, OfferInput, OfferKind, Placement, Rarity, Timing, WeeklyBlock } from "@/lib/drops/types";
 import { library } from "@/lib/library/objects";
 
 export type Step = 1 | 2 | 3;
@@ -34,6 +34,11 @@ export type DraftOffer = {
   kind: OfferKind;
   category: string;
   tradeable: boolean;
+  /** Dollars, as typed. Empty: no value. */
+  value: string;
+  /** 0: keeps its value. */
+  decayPercent: number;
+  decayDays: number;
 };
 
 export type Draft = {
@@ -71,6 +76,9 @@ export const OFFER_DEFAULTS: DraftOffer = {
   kind: "deal",
   category: "other",
   tradeable: true,
+  value: "",
+  decayPercent: 0,
+  decayDays: 7,
 };
 
 export function browserTimeZone(): string {
@@ -169,6 +177,9 @@ export function draftFromDrop(drop: MyDrop): Draft {
           kind: drop.offer.kind,
           category: drop.offer.category,
           tradeable: drop.offer.tradeable,
+          value: drop.offer.valueCents === null ? "" : (drop.offer.valueCents / 100).toFixed(2).replace(/\.00$/, ""),
+          decayPercent: drop.offer.decayPercent,
+          decayDays: drop.offer.decayDays,
         }
       : OFFER_DEFAULTS,
     placement: drop.placement,
@@ -186,9 +197,7 @@ export function draftToInput(draft: Draft): DropInput | null {
   return {
     ...(draft.editing ? { id: draft.editing } : {}),
     type: draft.type,
-    ...(draft.type === "offer"
-      ? { offer: { ...draft.offer, savings: draft.offer.savings.trim(), terms: draft.offer.terms.trim() } }
-      : {}),
+    ...(draft.type === "offer" ? { offer: offerInput(draft.offer) } : {}),
     title: draft.title.trim(),
     description: draft.description.trim(),
     objectId: draft.upload ? null : draft.objectId,
@@ -197,6 +206,20 @@ export function draftToInput(draft: Draft): DropInput | null {
     timeZone: draft.timeZone,
     timing: draft.timing,
     audience: draft.audience,
+  };
+}
+
+/** The offer as save_drop takes it: dollars typed become cents. */
+function offerInput(offer: DraftOffer): OfferInput {
+  const { value, ...rest } = offer;
+  const dollars = Number(value.replace(/[$,\s]/g, ""));
+  const valueCents = value.trim() && Number.isFinite(dollars) && dollars > 0 ? Math.round(dollars * 100) : null;
+  return {
+    ...rest,
+    savings: offer.savings.trim(),
+    terms: offer.terms.trim(),
+    valueCents,
+    decayPercent: valueCents === null ? 0 : offer.decayPercent,
   };
 }
 

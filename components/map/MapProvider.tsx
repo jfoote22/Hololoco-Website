@@ -31,6 +31,13 @@ import { currentSkin, onSkinChange } from "@/lib/skin";
 
 export type MapStatus = "loading" | "ready" | "unavailable";
 export type SheetSize = "peek" | "half" | "full";
+/** How wide the desktop panel is: the usual 380 px, or half the screen for lists. */
+export type PanelWidth = "normal" | "wide";
+
+/** The desktop panel's width in pixels. Keep in step with the classes in components/Panel.tsx. */
+export function panelPixels(width: PanelWidth, viewportWidth: number): number {
+  return width === "wide" ? Math.max(380, Math.min(Math.round(viewportWidth * 0.5), 860)) : 380;
+}
 
 /** Zoom used when opening one drop. */
 export const DROP_ZOOM = 17.4;
@@ -52,9 +59,9 @@ function subscribeToResize(onChange: () => void) {
 const viewportSnapshot = () => `${window.innerWidth}x${window.innerHeight}`;
 
 /** Space the panel covers: a 380 px panel on the left on desktop (Tailwind's md), the sheet on phones. */
-function insetsFor(viewport: string, sheet: SheetSize): Insets {
+function insetsFor(viewport: string, sheet: SheetSize, panel: PanelWidth): Insets {
   const [width, height] = viewport.split("x").map(Number);
-  if (width >= 768) return { top: 0, right: 0, bottom: 0, left: 412 };
+  if (width >= 768) return { top: 0, right: 0, bottom: 0, left: panelPixels(panel, width) + 32 };
   return { top: 112, right: 0, bottom: sheetPixels(sheet, height), left: 0 };
 }
 
@@ -70,9 +77,13 @@ type MapContextValue = {
   focus: (drop: PublicDrop | null) => void;
   sheet: SheetSize;
   setSheet: (size: SheetSize) => void;
+  panelWidth: PanelWidth;
+  setPanelWidth: (width: PanelWidth) => void;
   insets: Insets | null;
-  /** The add flow's drop while it's being placed. */
+  /** The add flow's drop while it's being placed, or the found event being reviewed. */
   setDraft: (draft: MapPin | null) => void;
+  /** Extra pins a screen shows, such as the found events being reviewed. Null removes them. */
+  setOverlay: (pins: MapPin[] | null) => void;
   /** True while the add flow has a drop on the map. */
   placing: boolean;
   /** Load the drops again, e.g. after publishing, pausing or deleting one. */
@@ -124,7 +135,9 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
   const [loadedOthers, setLoadedOthers] = useState<PublicDrop[]>([]);
   const [focused, setFocused] = useState<PublicDrop | null>(null);
   const [sheet, setSheet] = useState<SheetSize>("peek");
+  const [panelWidth, setPanelWidth] = useState<PanelWidth>("normal");
   const [draft, setDraft] = useState<MapPin | null>(null);
+  const [overlay, setOverlay] = useState<MapPin[] | null>(null);
   const [reloads, setReloads] = useState(0);
   const reload = useCallback(() => setReloads((n) => n + 1), []);
   const focusedRef = useRef<PublicDrop | null>(null);
@@ -184,10 +197,11 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
     const pins = new Map<string, MapPin>();
     for (const drop of others) pins.set(drop.id, { ...toPin(drop), modelUrl: undefined, faint: true });
     for (const drop of mine) pins.set(drop.id, toPin(drop));
+    for (const pin of overlay ?? NONE) pins.set(pin.id, pin);
     if (focused) pins.set(focused.id, toPin(focused));
     if (draft) pins.delete(draft.id);
     engine.setPins([...pins.values()]);
-  }, [engine, others, mine, focused, draft]);
+  }, [engine, others, mine, overlay, focused, draft]);
 
   useEffect(() => {
     engine?.setDraft(draft);
@@ -243,7 +257,7 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
 
   // Keep the map's centre in the part of the screen the panel doesn't cover.
   const viewport = useSyncExternalStore(subscribeToResize, viewportSnapshot, () => "");
-  const insets = useMemo(() => (viewport ? insetsFor(viewport, sheet) : null), [viewport, sheet]);
+  const insets = useMemo(() => (viewport ? insetsFor(viewport, sheet, panelWidth) : null), [viewport, sheet, panelWidth]);
 
   useEffect(() => {
     if (engine && insets) engine.setInsets(insets);
@@ -259,12 +273,15 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       focus,
       sheet,
       setSheet,
+      panelWidth,
+      setPanelWidth,
       insets,
       setDraft,
+      setOverlay,
       placing: draft !== null,
       reload,
     }),
-    [engine, status, mine, others, focused, focus, sheet, insets, draft, reload],
+    [engine, status, mine, others, focused, focus, sheet, panelWidth, insets, draft, reload],
   );
   const internals = useMemo<MapInternals>(() => ({ setEngine, focusedRef }), [setEngine]);
 

@@ -203,9 +203,14 @@ export function ReviewQueue() {
         </p>
       </div>
 
-      <Link href="/quests" className={`${textButton} self-start`}>
-        See all quests
-      </Link>
+      <div className="flex flex-wrap gap-x-4">
+        <Link href="/review/found" className={textButton}>
+          Found events around town
+        </Link>
+        <Link href="/quests" className={textButton}>
+          See all quests
+        </Link>
+      </div>
 
       {session.status === "loading" && <p className="text-sm text-muted">Loading…</p>}
       {session.status === "signed-out" && <SignIn next="/review" lead="Sign in with a staff account." />}

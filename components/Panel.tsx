@@ -1,6 +1,7 @@
 "use client";
 
-// The one floating panel. Desktop: on the left, 380 px wide, full height.
+// The one floating panel. Desktop: on the left, 380 px wide (half the screen for a page
+// that asks with <PanelWidth width="wide" />), full height.
 // Phone: a bottom sheet with three heights (peek, half, full). Drag the handle or tap it.
 // Pages set the height they open at with <SheetHeight />.
 
@@ -19,7 +20,7 @@ const HEIGHT_CLASS: Record<SheetSize, string> = {
 };
 
 export function Panel({ children }: { children: React.ReactNode }) {
-  const { sheet, setSheet } = useMap();
+  const { sheet, setSheet, panelWidth } = useMap();
   const panel = useRef<HTMLElement>(null);
   const drag = useRef<{ startY: number; startHeight: number; moved: boolean } | null>(null);
   const dragged = useRef(false);
@@ -70,7 +71,7 @@ export function Panel({ children }: { children: React.ReactNode }) {
       ref={panel}
       aria-label="Panel"
       style={dragHeight === null ? undefined : { height: dragHeight }}
-      className={`fixed inset-x-0 bottom-0 z-10 flex flex-col rounded-t-2xl bg-surface shadow-(--shadow-panel) md:inset-x-auto md:top-4 md:bottom-4 md:left-4 md:w-[380px] md:rounded-(--radius-panel) ${HEIGHT_CLASS[sheet]} ${dragHeight === null ? "transition-[height] duration-200 ease-out motion-reduce:transition-none" : ""}`}
+      className={`fixed inset-x-0 bottom-0 z-10 flex flex-col rounded-t-2xl bg-surface shadow-(--shadow-panel) md:inset-x-auto md:top-4 md:bottom-4 md:left-4 ${panelWidth === "wide" ? "md:w-[clamp(380px,50vw,860px)]" : "md:w-[380px]"} md:rounded-(--radius-panel) ${HEIGHT_CLASS[sheet]} ${dragHeight === null ? "transition-[height] duration-200 ease-out motion-reduce:transition-none" : ""}`}
     >
       <button
         type="button"

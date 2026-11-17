@@ -24,6 +24,8 @@ export type MapPin = {
   modelUrl?: string;
   /** Someone else's drop, shown only for context: dimmed and not clickable. */
   faint?: boolean;
+  /** Several things at one spot share a pin, which shows how many. */
+  count?: number;
 };
 
 export interface MapEngine {

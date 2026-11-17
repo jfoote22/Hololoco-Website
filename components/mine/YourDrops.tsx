@@ -12,6 +12,7 @@ import { SkinPicker } from "@/components/SkinPicker";
 import { DropThumb } from "@/components/DropThumb";
 import { useMap } from "@/components/map/MapProvider";
 import { SheetHeight } from "@/components/map/SheetHeight";
+import { FoundEventsLink } from "@/components/review/FoundEventsLink";
 import { useQuestRoute } from "@/components/map/useQuestRoute";
 import { QuestStages } from "@/components/QuestStages";
 import { SearchBox } from "@/components/SearchBox";
@@ -246,6 +247,7 @@ export function YourDrops() {
                 : "Thanks! A person will check it, usually within a day. Until then only you can see it."}
         </p>
       )}
+      {mine?.isStaff && <FoundEventsLink />}
       {mine?.isStaff && (
         <div className="flex flex-wrap gap-x-4">
           <Link href="/review" className={textButton}>

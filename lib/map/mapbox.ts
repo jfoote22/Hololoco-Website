@@ -207,7 +207,11 @@ class MapboxEngine implements MapEngine {
 
     for (const pin of pins) {
       const existing = this.pins.get(pin.id);
-      if (existing) {
+      // A pin that now says something else is drawn again.
+      if (existing && (existing.pin.count !== pin.count || existing.pin.title !== pin.title || existing.pin.thumbnail !== pin.thumbnail)) {
+        existing.marker.remove();
+        this.pins.delete(pin.id);
+      } else if (existing) {
         existing.marker.setLngLat([pin.placement.lng, pin.placement.lat]);
         existing.pin = pin;
         setFaint(existing.el, pin.faint === true);
@@ -361,6 +365,12 @@ class MapboxEngine implements MapEngine {
       img.draggable = false;
       img.decoding = "async";
       head.append(img);
+    }
+    if (pin.count && pin.count > 1) {
+      const count = document.createElement("span");
+      count.className = "hl-pin-count";
+      count.textContent = pin.count > 99 ? "99+" : String(pin.count);
+      head.append(count);
     }
 
     const stem = document.createElement("span");

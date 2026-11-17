@@ -99,7 +99,7 @@ export function LookPicker({
     <fieldset className="flex min-w-0 flex-col gap-3">
       <legend className="mb-2 text-sm font-semibold">How it looks</legend>
 
-      <div role="group" aria-label="Kind of look" className="grid grid-cols-3 gap-1 rounded-[10px] bg-wash p-1">
+      <div role="group" aria-label="Kind of look" className="grid grid-cols-3 gap-1 rounded-xl bg-wash p-1">
         {TABS.map((t) => (
           <button
             key={t.id}

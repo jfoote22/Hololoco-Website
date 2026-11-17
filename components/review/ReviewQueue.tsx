@@ -279,7 +279,7 @@ export function ReviewQueue() {
                         type="button"
                         disabled={busy === String(item.reports[0].id)}
                         onClick={() => closeRequest(item.reports[0].id, "resolved")}
-                        className="min-h-11 rounded-lg bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-60"
+                        className="min-h-11 rounded-lg bg-accent px-4 text-sm font-semibold text-on-accent hover:bg-accent-strong disabled:opacity-60"
                       >
                         Mark as handled
                       </button>
@@ -457,7 +457,7 @@ function Decide({
           disabled={busy || blockApprove !== null}
           title={blockApprove ?? undefined}
           onClick={onApprove}
-          className="min-h-11 rounded-lg bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-60"
+          className="min-h-11 rounded-lg bg-accent px-4 text-sm font-semibold text-on-accent hover:bg-accent-strong disabled:opacity-60"
         >
           {approveLabel}
         </button>
@@ -522,7 +522,7 @@ function Decide({
         <button
           type="submit"
           disabled={busy}
-          className="min-h-11 flex-1 rounded-lg bg-rejected px-3 text-sm font-semibold text-white disabled:opacity-60"
+          className="min-h-11 flex-1 rounded-lg bg-rejected px-3 text-sm font-semibold text-on-rejected disabled:opacity-60"
         >
           {rejectLabel}
         </button>

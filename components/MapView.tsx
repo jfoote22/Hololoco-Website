@@ -138,7 +138,7 @@ function MapButton({
       title={label}
       onClick={onClick}
       aria-busy={busy || undefined}
-      className="flex size-11 items-center justify-center rounded-[10px] bg-surface text-ink shadow-[0_2px_8px_rgb(23_36_44/0.18)] hover:bg-wash aria-busy:animate-pulse"
+      className="flex size-11 items-center justify-center rounded-xl bg-surface text-ink shadow-[0_2px_8px_rgb(23_36_44/0.18)] hover:bg-wash aria-busy:animate-pulse"
     >
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         {children}

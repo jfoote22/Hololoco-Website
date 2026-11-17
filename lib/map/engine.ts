@@ -37,6 +37,8 @@ export interface MapEngine {
   setSelected(id: string | null): void;
   /** Draw a quest's route through these spots, in order. Null removes it. */
   setRoute(points: LngLat[] | null): void;
+  /** Daytime light for Daylight, night light for Soft night. */
+  setLook(look: "day" | "night"): void;
 
   /** Move the camera. `instant` skips the animation. */
   flyTo(view: View, options?: { instant?: boolean }): void;

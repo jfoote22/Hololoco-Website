@@ -17,7 +17,7 @@ export function DropThumb({
 }) {
   const src = thumbnailFor(drop);
   return (
-    <span className={`flex shrink-0 items-center justify-center rounded-[10px] bg-wash ${className}`}>
+    <span className={`flex shrink-0 items-center justify-center rounded-xl bg-wash ${className}`}>
       {src && (
         <Image
           src={src}

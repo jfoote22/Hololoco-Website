@@ -4,6 +4,7 @@
 // readers) and, when zoomed in close, as their 3D model at real height, size and turn
 // through Mapbox's own model layer. Keeping models to close zoom keeps phones smooth.
 
+import { currentSkin } from "@/lib/skin";
 import type { ExpressionSpecification, GeoJSONSource, Map as MapboxMap, Marker } from "mapbox-gl";
 import type { Insets, LngLat, MapBounds, MapEngine, MapPin, View } from "./engine";
 
@@ -47,6 +48,7 @@ type PinEntry = { marker: Marker; el: HTMLButtonElement; pin: MapPin };
 
 class MapboxEngine implements MapEngine {
   private map: MapboxMap | null = null;
+  private look: "day" | "night" = currentSkin() === "soft-night" ? "night" : "day";
   private pins = new Map<string, PinEntry>();
   private selected: string | null = null;
   private pinHandlers = new Set<(id: string) => void>();
@@ -71,10 +73,11 @@ class MapboxEngine implements MapEngine {
           accessToken: this.accessToken,
           container,
           style: "mapbox://styles/mapbox/standard",
-          // A quiet, light, desaturated base so people's content is the colour on screen.
+          // A quiet, desaturated base so people's content is the colour on screen,
+          // in day or night light to match the website's look.
           config: {
             basemap: {
-              lightPreset: "day",
+              lightPreset: this.look,
               theme: "faded",
               showPointOfInterestLabels: false,
               showTransitLabels: false,
@@ -117,6 +120,12 @@ class MapboxEngine implements MapEngine {
       });
       this.map = map;
     });
+  }
+
+  setLook(look: "day" | "night") {
+    if (look === this.look) return;
+    this.look = look;
+    this.map?.setConfigProperty("basemap", "lightPreset", look);
   }
 
   destroy() {

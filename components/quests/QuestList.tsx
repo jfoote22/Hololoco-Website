@@ -89,7 +89,7 @@ export function QuestList() {
               type="button"
               disabled={busy}
               onClick={buildNow}
-              className="min-h-11 rounded-lg bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-60"
+              className="min-h-11 rounded-lg bg-accent px-4 text-sm font-semibold text-on-accent hover:bg-accent-strong disabled:opacity-60"
             >
               {busy ? "Building…" : "Build quests now"}
             </button>

@@ -27,6 +27,7 @@ import { listMyDrops } from "@/lib/drops/mine";
 import { listDropsInBounds } from "@/lib/drops/source";
 import type { MyDrop, PublicDrop } from "@/lib/drops/types";
 import type { Insets, MapEngine, MapPin } from "@/lib/map/engine";
+import { currentSkin, onSkinChange } from "@/lib/skin";
 
 export type MapStatus = "loading" | "ready" | "unavailable";
 export type SheetSize = "peek" | "half" | "full";
@@ -191,6 +192,14 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     engine?.setDraft(draft);
   }, [engine, draft]);
+
+  // The map's light follows the website's look.
+  useEffect(() => {
+    if (!engine) return;
+    const apply = () => engine.setLook(currentSkin() === "soft-night" ? "night" : "day");
+    apply();
+    return onSkinChange(apply);
+  }, [engine]);
 
   useEffect(() => {
     engine?.setSelected(focused?.id ?? null);

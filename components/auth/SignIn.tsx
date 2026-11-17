@@ -119,7 +119,7 @@ export function SignIn({ next, lead }: { next: string; lead?: string }) {
           <button
             type="submit"
             disabled={busy}
-            className="min-h-11 rounded-lg bg-accent px-4 font-semibold text-white hover:bg-accent-strong disabled:opacity-60"
+            className="min-h-11 rounded-lg bg-accent px-4 font-semibold text-on-accent hover:bg-accent-strong disabled:opacity-60"
           >
             {busy ? "Checking…" : "Sign in"}
           </button>
@@ -151,7 +151,7 @@ export function SignIn({ next, lead }: { next: string; lead?: string }) {
           <button
             type="submit"
             disabled={busy}
-            className="min-h-11 rounded-lg bg-accent px-4 font-semibold text-white hover:bg-accent-strong disabled:opacity-60"
+            className="min-h-11 rounded-lg bg-accent px-4 font-semibold text-on-accent hover:bg-accent-strong disabled:opacity-60"
           >
             {busy ? "Sending…" : "Email me a sign-in code"}
           </button>

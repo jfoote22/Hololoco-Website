@@ -141,7 +141,10 @@ export function WhenStep({ draft, update }: Props) {
                   className="mt-1 accent-accent"
                 />
                 <span className="text-sm">
-                  <b className="block">{name}</b>
+                  <b className="flex items-center gap-2">
+                    <RarityGem rarity={rarity} />
+                    {name}
+                  </b>
                   <span className="text-muted">{line}</span>
                 </span>
               </label>
@@ -197,7 +200,7 @@ function HoursBlock({
             aria-label={name}
             title={name}
             onClick={() => toggle(day)}
-            className="size-11 rounded-full border border-line text-sm font-semibold aria-pressed:border-accent aria-pressed:bg-accent aria-pressed:text-white"
+            className="size-11 rounded-full border border-line text-sm font-semibold aria-pressed:border-accent aria-pressed:bg-accent aria-pressed:text-on-accent"
           >
             {short}
           </button>
@@ -265,5 +268,16 @@ function TimeZone({ value, onChange }: { value: string; onChange: (zone: string)
         ))}
       </select>
     </label>
+  );
+}
+
+/** The rarity mark: an outline, half-filled or filled gem in the tier's colour. */
+function RarityGem({ rarity }: { rarity: Rarity }) {
+  const colour = rarity === "rare" ? "text-rare" : rarity === "uncommon" ? "text-uncommon" : "text-common";
+  return (
+    <svg viewBox="0 0 12 12" className={`size-3.5 ${colour}`} aria-hidden="true">
+      <path d="M6 .9 11.1 6 6 11.1.9 6Z" fill={rarity === "rare" ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      {rarity === "uncommon" && <path d="M.9 6h10.2L6 11.1Z" fill="currentColor" />}
+    </svg>
   );
 }

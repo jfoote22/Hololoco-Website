@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { signOut, useSession } from "@/components/auth/session";
+import { SkinPicker } from "@/components/SkinPicker";
 import { DropThumb } from "@/components/DropThumb";
 import { useMap } from "@/components/map/MapProvider";
 import { SheetHeight } from "@/components/map/SheetHeight";
@@ -394,7 +395,11 @@ export function YourDrops() {
         </ul>
       )}
 
-      <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3 text-sm text-muted">
+      <div className="mt-auto border-t border-line pt-3">
+        <SkinPicker />
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3 text-sm text-muted">
         <span className="min-w-0 truncate">Signed in as {session.user.email}</span>
         <button type="button" onClick={() => void signOut()} className={textButton}>
           Sign out

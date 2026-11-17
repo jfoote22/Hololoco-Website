@@ -96,7 +96,7 @@ export function SearchBox({
         choose(results[active >= 0 ? active : 0]);
       }}
     >
-      <label className="flex min-h-12 items-center gap-2.5 rounded-[10px] border border-line bg-surface px-3.5 focus-within:border-accent">
+      <label className="flex min-h-12 items-center gap-2.5 rounded-xl border border-line bg-surface px-3.5 focus-within:border-accent">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-muted)" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true" className="shrink-0">
           <circle cx="11" cy="11" r="7" />
           <path d="M20 20l-3.5-3.5" />
@@ -130,7 +130,7 @@ export function SearchBox({
         role="listbox"
         aria-label="Search results"
         hidden={!showList}
-        className="absolute inset-x-0 top-full mt-1 max-h-[min(60dvh,360px)] overflow-y-auto rounded-[10px] border border-line bg-surface py-1 shadow-(--shadow-panel)"
+        className="absolute inset-x-0 top-full mt-1 max-h-[min(60dvh,360px)] overflow-y-auto rounded-xl border border-line bg-surface py-1 shadow-(--shadow-panel)"
       >
         {results.map((place, i) => (
           <li
@@ -159,7 +159,7 @@ export function SearchBox({
         {open ? status : ""}
       </p>
       {open && ready && results.length === 0 && (
-        <p className="absolute inset-x-0 top-full mt-1 rounded-[10px] border border-line bg-surface px-3 py-2.5 text-sm text-muted shadow-(--shadow-panel)">
+        <p className="absolute inset-x-0 top-full mt-1 rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-muted shadow-(--shadow-panel)">
           {status}
         </p>
       )}

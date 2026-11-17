@@ -5,8 +5,8 @@
 import "mapbox-gl/dist/mapbox-gl.css";
 import { useEffect, useRef, useState } from "react";
 import { DROP_ZOOM, useMap, useMapInternals } from "@/components/map/MapProvider";
-import { SAMPLE_CENTRE } from "@/lib/drops/sample";
 import type { MapEngine } from "@/lib/map/engine";
+import { START_VIEW } from "@/lib/map/start";
 
 const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
@@ -32,7 +32,7 @@ export function MapView() {
       if (cancelled) return;
       created = engine;
       const open = focusedRef.current;
-      await created.mount(el, open ? { center: open.placement, zoom: DROP_ZOOM } : { center: SAMPLE_CENTRE });
+      await created.mount(el, open ? { center: open.placement, zoom: DROP_ZOOM } : START_VIEW);
       if (!cancelled) setEngine(created, "ready");
     })().catch((error: unknown) => {
       console.warn("The map couldn't start:", error);

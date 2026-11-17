@@ -1,11 +1,12 @@
 // Sample content, so the map has something on it before people post.
-// The people and businesses are made up. The launch city isn't chosen yet: to move
-// the whole set, change SAMPLE_CENTRE; every drop is placed in metres from it.
+// The people and businesses are made up. Every drop is placed in metres from
+// SAMPLE_CENTRE, the map's starting point, so moving the start moves the whole set.
 
+import { START_VIEW } from "@/lib/map/start";
 import type { Placement, PublicDrop } from "./types";
 
-/** Lower Manhattan, by the South Street Seaport. */
-export const SAMPLE_CENTRE = { lat: 40.7075, lng: -74.004 };
+/** Downtown Austin: the centre of the map's starting view. */
+export const SAMPLE_CENTRE = START_VIEW.center;
 
 const METRES_PER_DEGREE = 111_320;
 
@@ -18,7 +19,7 @@ function at(east: number, north: number, rest: Omit<Placement, "lat" | "lng">): 
 
 const round = (n: number) => Math.round(n * 1e6) / 1e6;
 
-const timeZone = "America/New_York";
+const timeZone = "America/Chicago";
 
 /** Samples show alongside real drops until NEXT_PUBLIC_SAMPLE_DROPS is set to "off". */
 export const showSamples = process.env.NEXT_PUBLIC_SAMPLE_DROPS !== "off";
@@ -62,7 +63,7 @@ const drops: PublicDrop[] = [
     title: "Free pastry with any coffee",
     description: "One per person, before 11 am.",
     look: { kind: "library", objectId: "cup" },
-    placement: at(-110, -40, { height: 4, size: 6, turn: 0 }),
+    placement: at(-116, 163, { height: 4, size: 6, turn: 0 }),
     timeZone,
     timing: { kind: "weekly", blocks: [{ days: [1, 2, 3, 4, 5], start: "06:00", end: "11:00" }] },
     audience: "everyone",
@@ -92,7 +93,7 @@ const drops: PublicDrop[] = [
     title: "$50 off trail shoes",
     description: "Only five out there this weekend. Good luck.",
     look: { kind: "library", objectId: "star" },
-    placement: at(170, -110, { height: 7, size: 8, turn: 0 }),
+    placement: at(170, -62, { height: 7, size: 8, turn: 0 }),
     timeZone,
     timing: { kind: "once", start: "2026-11-21T08:00", end: "2026-11-21T20:00" },
     audience: "everyone",
@@ -117,9 +118,9 @@ const drops: PublicDrop[] = [
   {
     id: "h2b5q8le",
     type: "object",
-    ownerId: "sample-harbor-arts",
-    owner: { name: "Harbor Arts Collective", kind: "business", verified: false },
-    title: "Harbor gift",
+    ownerId: "sample-lakeshore-arts",
+    owner: { name: "Lakeshore Arts Collective", kind: "business", verified: false },
+    title: "Lakeshore gift",
     description: "A floating sculpture above the waterfront walk.",
     look: { kind: "library", objectId: "gift" },
     placement: at(290, -170, { height: 9, size: 10, turn: 20 }),

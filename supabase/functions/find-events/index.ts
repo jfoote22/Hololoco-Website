@@ -1,14 +1,15 @@
 // The find-events Edge Function: Hololoco looking around town for events by itself.
 //
-// The database wakes it with { action: "tick" } (pg_net, from the found-tick job
-// every three minutes while a run is open; see the found_events migration). Each
-// tick does whatever the tables say is waiting, inside a time budget, and stops:
+// The database wakes it with { action: "tick" } (pg_net, from the found-tick job,
+// which runs every ten minutes in the hour after each daily run). Each tick does
+// whatever the tables say is waiting, inside a time budget, and stops:
 //   1. A queued run becomes one search per topic that's due (every topic when staff
 //      asked for the run), all sent to Claude as one Message Batch. Batches have no
 //      time limit, which an Edge Function on the free plan does (150 s), and cost half.
 //   2. When the batch ends, each search has either saved its events or stopped early;
 //      one that stopped carries on in the next batch (up to MAX_ROUNDS requests).
-//   3. Saved events are placed (place.ts) and stored as pending for staff.
+//   3. Saved events are placed (place.ts) and stored as pending for staff, up to
+//      MAX_EVENTS_PER_RUN for the whole run (cap.ts); past that the run stops.
 //
 // Anyone can call it, so it trusts nothing in the request: it only does work the
 // database queued, and only the daily job or staff (run_finder) queue a run.
@@ -19,6 +20,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import Anthropic from "npm:@anthropic-ai/sdk@1.8.0";
 import postgres from "https://deno.land/x/postgresjs@v3.4.5/mod.js";
+import { budgetFor, MAX_EVENTS_PER_RUN, placeWithinBudget, type Budget } from "./cap.ts";
 import { placeEvent, venueKey, type Area } from "./place.ts";
 import { SAVE_TOOL, SYSTEM, TOPICS, type FoundEvent, type Topic } from "./topics.ts";
 
@@ -130,6 +132,10 @@ async function submitWaiting(client: Anthropic) {
       select s.id, s.topic, s.round, s.messages, s.status, r.area_id
       from public.found_searches s join public.found_runs r on r.id = s.run_id
       where s.status in ('queued', 'continue') and s.round < ${MAX_ROUNDS}
+        -- A run that has already added its cap gets no more searches sent (see cap.ts);
+        -- placeSaved marks them done, but this tick's batch would go out before that.
+        and coalesce((select sum(s2.added) from public.found_searches s2 where s2.run_id = s.run_id), 0)
+            < ${MAX_EVENTS_PER_RUN}
       order by s.id
       for update of s skip locked
       limit 40`;
@@ -365,45 +371,88 @@ async function readResult(search: { id: number; round: number; messages: Json[] 
 
 async function placeSaved(timeLeft: () => number) {
   let placed = 0;
+  let added = 0;
+  let duplicates = 0;
+  let capped = false;
   const searches = await sql`
-    select s.id, s.found, s.placed, r.area_id from public.found_searches s join public.found_runs r on r.id = s.run_id
+    select s.id, s.found, s.placed, r.id as run_id, r.area_id
+    from public.found_searches s join public.found_runs r on r.id = s.run_id
     where s.status = 'placing' order by s.id`;
+  // One budget per run, shared by its searches and carried across this tick's searches.
+  const budgets = new Map<number, Budget>();
   for (const search of searches) {
     const area = await areaOf(sql, search.area_id);
     const events = (search.found ?? []) as FoundEvent[];
-    let index = search.placed as number;
-    const counts = { added: 0, duplicates: 0, skipped: 0 };
-    while (index < events.length && timeLeft() > 8_000) {
-      const event = events[index++];
-      let outcome = "skipped: unreadable";
-      try {
-        const spot = area && event?.title ? await placeEvent(sql, area, event) : null;
-        if (!spot) {
-          outcome = "skipped: no location";
-        } else {
+    let budget = budgets.get(search.run_id);
+    if (!budget) {
+      budget = budgetFor(await addedInRun(search.run_id));
+      budgets.set(search.run_id, budget);
+    }
+
+    const result = await placeWithinBudget(
+      events,
+      search.placed as number,
+      budget,
+      () => timeLeft() > 8_000,
+      async (event, index) => {
+        try {
+          const spot = area && event?.title ? await placeEvent(sql, area, event) : null;
+          if (!spot) return "skipped: no location";
           const [row] = await sql`
             select private.found_save_event(${search.id}, ${area!.id},
               ${sql.json({ ...event, ...spot, venue_key: spot.venue_key ?? venueKey(area!.id, event) })}) as outcome`;
-          outcome = row.outcome;
+          return row.outcome as string;
+        } catch (error) {
+          console.error(`placing ${search.id}#${index}: ${error instanceof Error ? error.message : error}`);
+          return "skipped: unreadable";
         }
-      } catch (error) {
-        console.error(`placing ${search.id}#${index - 1}: ${error instanceof Error ? error.message : error}`);
-      }
-      if (outcome === "added") counts.added++;
-      else if (outcome === "duplicate") counts.duplicates++;
-      else counts.skipped++;
-      placed++;
-    }
-    const done = index >= events.length;
+      },
+    );
+    const { index, counts, capped: hitCap } = result;
+
+    // Capped: the rest of this search's events are dropped and the search is finished,
+    // because the run has no room for them however long it keeps trying.
+    const done = hitCap || index >= events.length;
     await sql`
       update public.found_searches set
         placed = ${index}, added = added + ${counts.added}, duplicates = duplicates + ${counts.duplicates},
         skipped = skipped + ${counts.skipped},
-        status = ${done ? "done" : "placing"}, found = case when ${done} then null else found end, updated_at = now()
+        status = ${done ? "done" : "placing"}, found = case when ${done} then null else found end,
+        error = case when ${hitCap} then 'capped' else error end, updated_at = now()
       where id = ${search.id}`;
+    placed += index - (search.placed as number);
+    added += counts.added;
+    duplicates += counts.duplicates;
+    if (hitCap) {
+      capped = true;
+      await stopAtCap(search.run_id);
+    }
     if (!done) break;
   }
-  return placed;
+  return { placed, events_added: added, duplicates, capped };
+}
+
+/** How many events a run has inserted so far, from its searches' own counters. */
+async function addedInRun(runId: number) {
+  const [row] = await sql`
+    select coalesce(sum(s.added), 0)::int as added from public.found_searches s where s.run_id = ${runId}`;
+  return row.added as number;
+}
+
+/**
+ * The run is full: finish its other searches without sending them. They're done, not
+ * failed — nothing went wrong with them, there's just nowhere left to put what they'd
+ * find, and a Claude call for that is money burnt. One already in a batch is left
+ * where it is; the batch's own results are never read.
+ */
+async function stopAtCap(runId: number) {
+  const stopped = await sql`
+    update public.found_searches set
+      status = 'done', error = coalesce(error, 'capped'), found = null, messages = null, updated_at = now()
+    where run_id = ${runId} and status not in ('done', 'failed')
+    returning id`;
+  if (stopped.length > 0) console.log(`run ${runId} hit MAX_EVENTS_PER_RUN: ${stopped.length} searches stopped`);
+  return stopped.length;
 }
 
 async function finishRuns() {
